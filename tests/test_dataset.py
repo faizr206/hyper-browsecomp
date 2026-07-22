@@ -22,3 +22,10 @@ def test_load_browsecomp_jsonl_rejects_empty(tmp_path) -> None:
     path.write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="contains no samples"):
         load_browsecomp_jsonl(path)
+
+
+def test_dev_dataset_loads() -> None:
+    samples = load_browsecomp_jsonl("data/dev.jsonl")
+    assert len(samples) == 1
+    assert samples[0].input == "What is the capital city of France?"
+    assert samples[0].target == ["Paris"]

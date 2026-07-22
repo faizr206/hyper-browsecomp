@@ -1,0 +1,1 @@
+{"id":"dev-001","question":"As of July 22, 2026, what is the latest stable Python 3 release listed on the official Python website?","answers":["Python 3.14.6"],"answer_type":"entity","language":"en","modalities":["web"],"source_metadata":{"purpose":"smoke-test"}}

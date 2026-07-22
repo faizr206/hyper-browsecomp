@@ -14,9 +14,18 @@ from hyper_browsecomp.utils import sanitize_filename
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+NATIVE_PROVIDER_ENV_PREFIXES = {
+    "gemini": "GOOGLE",
+    "google": "GOOGLE",
+    "grok": "XAI",
+}
+NATIVE_MODEL_PROVIDER_ALIASES = {
+    "gemini": "google",
+}
 
 
 def _provider_env_name(provider: str, suffix: str) -> str:
+    provider = NATIVE_PROVIDER_ENV_PREFIXES.get(provider, provider)
     return f"{provider.upper().replace('-', '_')}_{suffix}"
 
 
@@ -41,6 +50,12 @@ def _model_provider_from_string(model: str | None) -> str | None:
     parts = model.split("/", 2)
     if len(parts) == 3 and parts[0] == "openai-api":
         return parts[1]
+    if len(parts) >= 2:
+        provider = parts[0]
+        for alias, native_provider in NATIVE_MODEL_PROVIDER_ALIASES.items():
+            if provider == native_provider:
+                return alias
+        return provider
     return None
 
 
@@ -61,16 +76,16 @@ def prepare_env(config: RunConfig) -> dict[str, str]:
     _apply_provider_env(
         env,
         provider=main_provider,
-        api_key=env.get("MODEL_API_KEY"),
-        base_url=env.get("MODEL_BASE_URL"),
+        api_key=env.get(config.model_api_key_env),
+        base_url=config.model_base_url,
     )
 
     if scorer_provider:
         _apply_provider_env(
             env,
             provider=scorer_provider,
-            api_key=env.get("SCORER_API_KEY") or env.get("MODEL_API_KEY"),
-            base_url=env.get("SCORER_BASE_URL") or env.get("MODEL_BASE_URL"),
+            api_key=env.get(config.scorer_api_key_env),
+            base_url=config.scorer_base_url,
         )
 
     inspect_home = (PROJECT_ROOT / ".inspect_home").resolve()
@@ -110,6 +125,7 @@ def build_inspect_command(config: RunConfig) -> list[str]:
         "tool_profile": config.tool_profile,
         "search_backend": config.search_backend,
         "fetch_backend": config.fetch_backend,
+        "model_provider": config.provider or _model_provider_from_string(config.model),
         "search_max_results": config.search_max_results,
         "search_timeout_seconds": config.search_timeout_seconds,
         "fetch_timeout_seconds": config.fetch_timeout_seconds,

@@ -16,5 +16,6 @@ wheels/
 .pytest_cache/
 .mypy_cache/
 logs/
-data/
+data/*
+!data/dev.jsonl
 .inspect_home/

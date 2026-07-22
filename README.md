@@ -12,21 +12,39 @@ pip install -e ".[dev]"
 
 ## Environment
 
-The runner supports one generic env contract for the main model:
+Store API key values in `.env`:
 
 ```bash
-MODEL_PROVIDER=deepseek
-MODEL_API_KEY=...
-MODEL_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+GOOGLE_API_KEY=...
+XAI_API_KEY=...
+MISTRAL_API_KEY=...
+PERPLEXITY_API_KEY=...
+DEEPSEEK_API_KEY=...
+OPENROUTER_API_KEY=...
+DASHSCOPE_API_KEY=...
 ```
 
-Optional separate scorer credentials:
+Each YAML config chooses which environment variable to read for the main model
+and scorer:
 
-```bash
-SCORER_PROVIDER=openrouter
-SCORER_API_KEY=...
-SCORER_BASE_URL=https://openrouter.ai/api/v1
+```yaml
+provider: openai
+model_name: gpt-5.4-mini
+model_api_key_env: OPENAI_API_KEY
+model_base_url: https://api.openai.com/v1
+
+scorer_provider: openrouter
+scorer_model_name: openai/gpt-5.4-mini
+scorer_api_key_env: OPENROUTER_API_KEY
+scorer_base_url: https://openrouter.ai/api/v1
 ```
+
+Native Inspect providers are used for `openai`, `anthropic`, `gemini`, `grok`,
+`mistral`, and `perplexity`. `gemini` is accepted in YAML and resolved to
+Inspect's `google/<model>` provider path. Other provider names, such as `qwen`,
+continue to use Inspect's OpenAI-compatible `openai-api/<provider>/<model>` path.
 
 Web backends:
 
@@ -35,15 +53,38 @@ EXA_API_KEY=...
 FIRECRAWL_API_KEY=...
 ```
 
-The runner maps the generic model env vars into Inspect's provider-specific `openai-api/<provider>/<model>` env names before invoking `inspect eval`.
+The runner maps the selected key values and YAML base URLs into Inspect's
+provider-specific environment variables before invoking `inspect eval`. For
+example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
+`OPENAI_API_KEY`; `provider: gemini` writes `GOOGLE_API_KEY` and
+`GOOGLE_BASE_URL`; `provider: grok` writes `XAI_API_KEY` and `XAI_BASE_URL`.
 
 ## Run
 
 Use the single shell entrypoint with any YAML config:
 
 ```bash
+bash run_eval.sh configs/dev_openai.yaml
+bash run_eval.sh configs/dev_anthropic.yaml
+bash run_eval.sh configs/dev_gemini.yaml
+bash run_eval.sh configs/dev_grok.yaml
+bash run_eval.sh configs/dev_mistral.yaml
+bash run_eval.sh configs/dev_perplexity.yaml
+bash run_eval.sh configs/dev_qwen.yaml
 bash run_eval.sh configs/web.yaml
 bash run_eval.sh configs/web_code.yaml
+```
+
+The provider smoke configs all run the single-question `data/dev.jsonl` dataset:
+
+```text
+configs/dev_openai.yaml      OPENAI_API_KEY      https://api.openai.com/v1
+configs/dev_anthropic.yaml   ANTHROPIC_API_KEY   https://api.anthropic.com
+configs/dev_gemini.yaml      GOOGLE_API_KEY      https://generativelanguage.googleapis.com
+configs/dev_grok.yaml        XAI_API_KEY         api.x.ai
+configs/dev_mistral.yaml     MISTRAL_API_KEY     https://api.mistral.ai
+configs/dev_perplexity.yaml  PERPLEXITY_API_KEY  https://api.perplexity.ai
+configs/dev_qwen.yaml        DASHSCOPE_API_KEY   https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 ```
 
 Each run writes `.eval` logs under `logs/` and then renames the newest run log to:
@@ -61,12 +102,16 @@ provider: deepseek
 model_name: deepseek-chat
 scorer_provider: openrouter
 scorer_model_name: openai/gpt-5.4-mini
+model_api_key_env: DEEPSEEK_API_KEY
+model_base_url: https://api.deepseek.com
+scorer_api_key_env: OPENROUTER_API_KEY
+scorer_base_url: https://openrouter.ai/api/v1
 data_path: data/dev.jsonl
 # Optional: 1-based inclusive sample numbers. "1-2" evaluates samples 1 and 2.
 sample_range: "1-2"
 tool_profile: web
-search_backend: exa
-fetch_backend: firecrawl
+search_backend: internal
+fetch_backend: none
 max_steps: 12
 inspect_max_samples_parallel: 1
 inspect_model_max_retries: 1
@@ -81,9 +126,11 @@ Key fields:
 
 - `model` or `provider` + `model_name`
 - `scorer_model` or `scorer_provider` + `scorer_model_name`
+- `model_api_key_env`, `model_base_url`
+- `scorer_api_key_env`, `scorer_base_url`
 - `tool_profile`: `web` or `web_code`
-- `search_backend`: `exa` or `firecrawl`
-- `fetch_backend`: `exa` or `firecrawl`
+- `search_backend`: `internal`, `exa`, `firecrawl`, or `none`
+- `fetch_backend`: `exa`, `firecrawl`, or `none`
 - `data_path`, `sample_range`, `start_index`, `end_index`, `num_samples`
 - `max_steps`
 - `inspect_max_samples_parallel`, `inspect_model_max_retries`, `inspect_attempt_timeout`
@@ -108,7 +155,12 @@ Removed from the old repo:
 
 ## Tool behavior
 
-- `web` exposes only `web_search` and `web_fetch`
+- `search_backend: internal` uses Inspect's standard provider-native web search
+  for `openai`, `anthropic`, `gemini`, `grok`, `mistral`, and `perplexity`
+- `search_backend: none` disables search
+- `fetch_backend: none` disables page fetching
+- `web` exposes the configured web tools
 - `web_code` adds `bash()` and `python()`
 
-The agent prompt explicitly tells the model to use `web_search` and `web_fetch` for internet retrieval and only use `bash` or `python` when web tools are insufficient.
+The agent prompt adapts to the configured search and fetch backends, so it does
+not ask the model to call tools that are disabled.

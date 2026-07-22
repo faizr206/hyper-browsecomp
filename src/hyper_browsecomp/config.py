@@ -7,9 +7,23 @@ import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
 
 
-SearchBackend = Literal["exa", "firecrawl"]
-FetchBackend = Literal["exa", "firecrawl"]
+SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
+FetchBackend = Literal["exa", "firecrawl", "none"]
 ToolProfile = Literal["web", "web_code"]
+
+
+NATIVE_PROVIDER_ALIASES: dict[str, str] = {
+    "gemini": "google",
+}
+NATIVE_PROVIDERS = {
+    "openai",
+    "anthropic",
+    "gemini",
+    "google",
+    "grok",
+    "mistral",
+    "perplexity",
+}
 
 
 REMOVED_KEYS = {
@@ -33,6 +47,10 @@ class RunConfig(BaseModel):
     scorer_provider: str | None = None
     scorer_model_name: str | None = None
     scorer_model: str | None = None
+    model_api_key_env: str = "MODEL_API_KEY"
+    model_base_url: str | None = None
+    scorer_api_key_env: str = "SCORER_API_KEY"
+    scorer_base_url: str | None = None
     data_path: str = "data/dev.jsonl"
     tool_profile: ToolProfile = "web"
     search_backend: SearchBackend = "exa"
@@ -77,12 +95,18 @@ class RunConfig(BaseModel):
         if self.model:
             return self.model
         assert self.provider and self.model_name
+        if self.provider in NATIVE_PROVIDERS:
+            provider = NATIVE_PROVIDER_ALIASES.get(self.provider, self.provider)
+            return f"{provider}/{self.model_name}"
         return f"openai-api/{self.provider}/{self.model_name}"
 
     def resolved_scorer_model(self) -> str | None:
         if self.scorer_model:
             return self.scorer_model
         if self.scorer_provider and self.scorer_model_name:
+            if self.scorer_provider in NATIVE_PROVIDERS:
+                provider = NATIVE_PROVIDER_ALIASES.get(self.scorer_provider, self.scorer_provider)
+                return f"{provider}/{self.scorer_model_name}"
             return f"openai-api/{self.scorer_provider}/{self.scorer_model_name}"
         return None
 

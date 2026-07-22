@@ -10,13 +10,58 @@ from hyper_browsecomp.runner import build_inspect_command, prepare_env, rename_n
 
 
 def test_prepare_env_maps_generic_model_env(monkeypatch) -> None:
-    monkeypatch.setenv("MODEL_API_KEY", "secret")
-    monkeypatch.setenv("MODEL_BASE_URL", "https://example.com/v1")
-    config = RunConfig(provider="deepseek", model_name="deepseek-chat")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    config = RunConfig(
+        provider="openai",
+        model_name="gpt-5-mini",
+        model_api_key_env="OPENAI_API_KEY",
+        model_base_url="https://example.com/v1",
+    )
     env = prepare_env(config)
-    assert env["DEEPSEEK_API_KEY"] == "secret"
-    assert env["DEEPSEEK_BASE_URL"] == "https://example.com/v1"
+    assert env["OPENAI_API_KEY"] == "secret"
+    assert env["OPENAI_BASE_URL"] == "https://example.com/v1"
     assert env["HOME"].endswith(".inspect_home")
+
+
+def test_prepare_env_maps_scorer_from_configured_env(monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "scorer-secret")
+    config = RunConfig(
+        provider="openai",
+        model_name="gpt-5-mini",
+        scorer_provider="openrouter",
+        scorer_model_name="openai/gpt-5.4-mini",
+        scorer_api_key_env="OPENROUTER_API_KEY",
+        scorer_base_url="https://openrouter.ai/api/v1",
+    )
+    env = prepare_env(config)
+    assert env["OPENROUTER_API_KEY"] == "scorer-secret"
+    assert env["OPENROUTER_BASE_URL"] == "https://openrouter.ai/api/v1"
+
+
+def test_prepare_env_maps_gemini_to_google_env(monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-secret")
+    config = RunConfig(
+        provider="gemini",
+        model_name="gemini-2.5-pro",
+        model_api_key_env="GOOGLE_API_KEY",
+        model_base_url="https://generativelanguage.googleapis.com",
+    )
+    env = prepare_env(config)
+    assert env["GOOGLE_API_KEY"] == "google-secret"
+    assert env["GOOGLE_BASE_URL"] == "https://generativelanguage.googleapis.com"
+
+
+def test_prepare_env_maps_grok_to_xai_env(monkeypatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY", "xai-secret")
+    config = RunConfig(
+        provider="grok",
+        model_name="grok-3-mini",
+        model_api_key_env="XAI_API_KEY",
+        model_base_url="api.x.ai",
+    )
+    env = prepare_env(config)
+    assert env["XAI_API_KEY"] == "xai-secret"
+    assert env["XAI_BASE_URL"] == "api.x.ai"
 
 
 def test_build_inspect_command_adds_strict_tools_false() -> None:
@@ -37,6 +82,20 @@ def test_build_inspect_command_passes_sample_range() -> None:
     command = build_inspect_command(config)
     assert "-T" in command
     assert "sample_range=1-2" in command
+
+
+def test_build_inspect_command_uses_native_provider_and_backend_args() -> None:
+    config = RunConfig(
+        provider="gemini",
+        model_name="gemini-2.5-pro",
+        search_backend="internal",
+        fetch_backend="none",
+    )
+    command = build_inspect_command(config)
+    assert "google/gemini-2.5-pro" in command
+    assert "search_backend=internal" in command
+    assert "fetch_backend=none" in command
+    assert "model_provider=gemini" in command
 
 
 def test_runner_module_invokes_inspect(tmp_path: Path) -> None:

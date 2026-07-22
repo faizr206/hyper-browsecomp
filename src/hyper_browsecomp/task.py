@@ -8,7 +8,7 @@ from inspect_ai import model as inspect_model
 from inspect_ai.agent import AgentState, react, run
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.solver import Generate, Solver, TaskState, solver
-from inspect_ai.tool import Tool, bash, python
+from inspect_ai.tool import Tool, bash, python, web_search as inspect_web_search
 from inspect_ai.util import SandboxEnvironmentType
 
 from hyper_browsecomp.dataset import load_browsecomp_jsonl
@@ -18,7 +18,10 @@ from hyper_browsecomp.tools import build_web_fetch_tool, build_web_search_tool
 
 
 ToolProfile = Literal["web", "web_code"]
+SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
+FetchBackend = Literal["exa", "firecrawl", "none"]
 DEFAULT_DOCKER_SANDBOX: SandboxEnvironmentType = "docker"
+INTERNAL_SEARCH_PROVIDERS = {"openai", "anthropic", "gemini", "grok", "mistral", "perplexity"}
 FINALIZE_AFTER_MAX_STEPS_PROMPT = """\
 You have reached the maximum research step limit. Do not call any more tools.
 Using only the information already gathered in this conversation, provide your best final answer now.
@@ -91,6 +94,44 @@ def sample_id(state: TaskState) -> str:
     return str(metadata.get("id") or getattr(state, "sample_id", "unknown"))
 
 
+def agent_prompt_for_backends(
+    *,
+    search_backend: SearchBackend,
+    fetch_backend: FetchBackend,
+    tool_profile: ToolProfile,
+) -> str:
+    retrieval_instructions: list[str] = []
+    if search_backend == "internal":
+        retrieval_instructions.append(
+            "Use web_search for internet retrieval. This uses the model provider's built-in web search."
+        )
+    elif search_backend != "none":
+        retrieval_instructions.append("Use web_search first to find candidate sources.")
+
+    if fetch_backend != "none":
+        retrieval_instructions.append("Use web_fetch to retrieve relevant page content.")
+    elif search_backend != "none":
+        retrieval_instructions.append("web_fetch is disabled; rely on web_search results and citations.")
+
+    if not retrieval_instructions:
+        retrieval_instructions.append(
+            "Web search and fetch are disabled; answer from the model context and any non-web tools available."
+        )
+
+    if tool_profile == "web_code":
+        retrieval_instructions.append(
+            "Use bash or python only when you genuinely need computation, parsing, or transformation."
+        )
+    else:
+        retrieval_instructions.append("Do not mention tools that are not available.")
+
+    return WEB_ONLY_AGENT_PROMPT.replace(
+        "If you need information from the internet, use web_search first to find candidate sources, then use web_fetch to retrieve the relevant page content. Prefer official and primary sources whenever possible.\n\n"
+        "Do not use bash or python for internet retrieval. Use bash or python only when the web tools are insufficient and you genuinely need computation, parsing, or transformation that cannot be done from the tool outputs alone.",
+        "\n".join(retrieval_instructions),
+    )
+
+
 async def final_answer_from_context(active_model, messages: list) -> str:
     response = await active_model.generate(messages)
     return response.completion.strip()
@@ -99,8 +140,9 @@ async def final_answer_from_context(active_model, messages: list) -> str:
 def web_tools(
     *,
     tool_profile: ToolProfile,
-    search_backend: Literal["exa", "firecrawl"],
-    fetch_backend: Literal["exa", "firecrawl"],
+    search_backend: SearchBackend,
+    fetch_backend: FetchBackend,
+    model_provider: str | None,
     search_max_results: int,
     search_timeout_seconds: int,
     fetch_timeout_seconds: int,
@@ -108,18 +150,32 @@ def web_tools(
     bash_timeout: int,
     python_timeout: int,
 ) -> list[Tool]:
-    tools: list[Tool] = [
-        build_web_search_tool(
-            backend=search_backend,
-            max_results=search_max_results,
-            timeout_seconds=search_timeout_seconds,
-        ),
-        build_web_fetch_tool(
-            backend=fetch_backend,
-            timeout_seconds=fetch_timeout_seconds,
-            max_chars=fetch_max_chars,
-        ),
-    ]
+    tools: list[Tool] = []
+    if search_backend == "internal":
+        if model_provider not in INTERNAL_SEARCH_PROVIDERS:
+            raise ValueError(
+                "search_backend=internal requires provider to be one of: "
+                f"{', '.join(sorted(INTERNAL_SEARCH_PROVIDERS))}."
+            )
+        tools.append(inspect_web_search(providers=model_provider))
+    elif search_backend != "none":
+        tools.append(
+            build_web_search_tool(
+                backend=search_backend,
+                max_results=search_max_results,
+                timeout_seconds=search_timeout_seconds,
+            )
+        )
+
+    if fetch_backend != "none":
+        tools.append(
+            build_web_fetch_tool(
+                backend=fetch_backend,
+                timeout_seconds=fetch_timeout_seconds,
+                max_chars=fetch_max_chars,
+            )
+        )
+
     if tool_profile == "web_code":
         tools.extend([bash(timeout=bash_timeout), python(timeout=python_timeout)])
     return tools
@@ -130,8 +186,9 @@ def web_research_solver(
     *,
     tool_profile: ToolProfile = "web",
     max_steps: int = 12,
-    search_backend: Literal["exa", "firecrawl"] = "exa",
-    fetch_backend: Literal["exa", "firecrawl"] = "exa",
+    search_backend: SearchBackend = "exa",
+    fetch_backend: FetchBackend = "exa",
+    model_provider: str | None = None,
     search_max_results: int = 5,
     search_timeout_seconds: int = 60,
     fetch_timeout_seconds: int = 60,
@@ -155,12 +212,17 @@ def web_research_solver(
         agent = react(
             name="hyper_browsecomp_agent",
             description="Web research assistant for BrowseComp-style tasks",
-            prompt=WEB_ONLY_AGENT_PROMPT,
+            prompt=agent_prompt_for_backends(
+                search_backend=search_backend,
+                fetch_backend=fetch_backend,
+                tool_profile=tool_profile,
+            ),
             model=active_model,
             tools=web_tools(
                 tool_profile=tool_profile,
                 search_backend=search_backend,
                 fetch_backend=fetch_backend,
+                model_provider=model_provider,
                 search_max_results=search_max_results,
                 search_timeout_seconds=search_timeout_seconds,
                 fetch_timeout_seconds=fetch_timeout_seconds,
@@ -188,8 +250,9 @@ def web_research_solver(
 def hyper_browsecomp(
     data_path: str = "data/dev.jsonl",
     tool_profile: ToolProfile = "web",
-    search_backend: Literal["exa", "firecrawl"] = "exa",
-    fetch_backend: Literal["exa", "firecrawl"] = "exa",
+    search_backend: SearchBackend = "exa",
+    fetch_backend: FetchBackend = "exa",
+    model_provider: str | None = None,
     search_max_results: int = 5,
     search_timeout_seconds: int = 60,
     fetch_timeout_seconds: int = 60,
@@ -234,6 +297,7 @@ def hyper_browsecomp(
             max_steps=max_steps,
             search_backend=search_backend,
             fetch_backend=fetch_backend,
+            model_provider=model_provider,
             search_max_results=search_max_results,
             search_timeout_seconds=search_timeout_seconds,
             fetch_timeout_seconds=fetch_timeout_seconds,
