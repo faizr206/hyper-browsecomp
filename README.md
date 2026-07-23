@@ -5,10 +5,11 @@
 ## Install
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
+
+This creates a local `.venv` and installs the project with its development
+dependencies from `pyproject.toml` and `uv.lock`.
 
 ## Environment
 
@@ -64,15 +65,15 @@ example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
 Use the single shell entrypoint with any YAML config:
 
 ```bash
-bash run_eval.sh configs/dev_openai.yaml
-bash run_eval.sh configs/dev_anthropic.yaml
-bash run_eval.sh configs/dev_gemini.yaml
-bash run_eval.sh configs/dev_grok.yaml
-bash run_eval.sh configs/dev_mistral.yaml
-bash run_eval.sh configs/dev_perplexity.yaml
-bash run_eval.sh configs/dev_qwen.yaml
-bash run_eval.sh configs/web.yaml
-bash run_eval.sh configs/web_code.yaml
+uv run bash run_eval.sh configs/dev_openai.yaml
+uv run bash run_eval.sh configs/dev_anthropic.yaml
+uv run bash run_eval.sh configs/dev_gemini.yaml
+uv run bash run_eval.sh configs/dev_grok.yaml
+uv run bash run_eval.sh configs/dev_mistral.yaml
+uv run bash run_eval.sh configs/dev_perplexity.yaml
+uv run bash run_eval.sh configs/dev_qwen.yaml
+uv run bash run_eval.sh configs/web.yaml
+uv run bash run_eval.sh configs/web_code.yaml
 ```
 
 The provider smoke configs all run the single-question `data/dev.jsonl` dataset:
@@ -92,6 +93,17 @@ Each run writes `.eval` logs under `logs/` and then renames the newest run log t
 ```text
 {data_name}_{model_name}_{timestamp}_{id}.eval
 ```
+
+If a run stops in the middle, resume it by passing the original config and the
+partial `.eval` log:
+
+```bash
+uv run bash run_eval.sh resume configs/web.yaml logs/dev_gpt-5.4-mini_20260723T120000Z_abc123.eval
+```
+
+The resume command reads the original run's sample selection from the log, finds
+samples that are missing from the log or ended with an error, and starts a new
+run with `--sample-id` limited to those unfinished samples.
 
 ## Config
 

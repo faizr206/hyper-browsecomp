@@ -6,7 +6,12 @@ import sys
 from types import SimpleNamespace
 
 from hyper_browsecomp.config import RunConfig
-from hyper_browsecomp.runner import build_inspect_command, prepare_env, rename_new_eval_log
+from hyper_browsecomp.runner import (
+    build_inspect_command,
+    prepare_env,
+    rename_new_eval_log,
+    unfinished_sample_ids,
+)
 
 
 def test_prepare_env_maps_generic_model_env(monkeypatch) -> None:
@@ -82,6 +87,13 @@ def test_build_inspect_command_passes_sample_range() -> None:
     command = build_inspect_command(config)
     assert "-T" in command
     assert "sample_range=1-2" in command
+
+
+def test_build_inspect_command_can_limit_sample_ids() -> None:
+    config = RunConfig(provider="deepseek", model_name="deepseek-chat")
+    command = build_inspect_command(config, sample_ids=["q2", "q3"])
+    assert "--sample-id" in command
+    assert "q2,q3" in command
 
 
 def test_build_inspect_command_uses_native_provider_and_backend_args() -> None:
@@ -169,3 +181,33 @@ def test_rename_new_eval_log_uses_requested_pattern(tmp_path: Path, monkeypatch)
     assert renamed is not None
     assert renamed.name == "my_dataset_deepseek-chat_20260717T100000Z_abc123.eval"
     assert renamed.exists()
+
+
+def test_unfinished_sample_ids_returns_missing_and_error_samples(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data_path = tmp_path / "data.jsonl"
+    data_path.write_text(
+        "\n".join(
+            [
+                '{"id":"q1","question":"one","answers":["a"]}',
+                '{"id":"q2","question":"two","answers":["b"]}',
+                '{"id":"q3","question":"three","answers":["c"]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = RunConfig(provider="deepseek", model_name="deepseek-chat", data_path=str(data_path))
+    fake_log = SimpleNamespace(
+        eval=SimpleNamespace(task_args={"data_path": str(data_path), "sample_range": "1-3"}),
+        samples=[
+            SimpleNamespace(id="q1", metadata={}, completed_at="2026-07-17T10:00:00Z", error=None),
+            SimpleNamespace(
+                id=2, metadata={"id": "q2"}, completed_at=None, error=SimpleNamespace()
+            ),
+            SimpleNamespace(id="outside", metadata={}, completed_at=None, error=SimpleNamespace()),
+        ],
+    )
+    monkeypatch.setattr("hyper_browsecomp.runner.read_eval_log", lambda *args, **kwargs: fake_log)
+
+    assert unfinished_sample_ids(config, "logs/partial.eval") == ["q2", "q3"]

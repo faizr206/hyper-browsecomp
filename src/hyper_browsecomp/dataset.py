@@ -38,6 +38,7 @@ def record_to_sample(record: dict[str, Any], *, source: str = "<record>") -> Sam
         metadata["source_metadata"] = item.source_metadata
 
     return Sample(
+        id=item.id,
         input=item.question,
         target=item.answers,
         metadata=metadata,

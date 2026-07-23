@@ -3,8 +3,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [[ $# -ne 1 ]]; then
+if [[ $# -ne 1 && $# -ne 3 ]]; then
   echo "usage: bash run_eval.sh CONFIG.yaml" >&2
+  echo "       bash run_eval.sh resume CONFIG.yaml LOG.eval" >&2
   exit 2
 fi
 
@@ -23,4 +24,4 @@ if [[ -f ".env" ]]; then
   set +a
 fi
 
-"$PYTHON_BIN" -m hyper_browsecomp.runner "$1"
+"$PYTHON_BIN" -m hyper_browsecomp.runner "$@"

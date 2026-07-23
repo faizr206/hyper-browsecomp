@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from inspect_ai.log import read_eval_log
 
 from hyper_browsecomp.config import RunConfig, load_run_config
+from hyper_browsecomp.dataset import load_browsecomp_jsonl
+from hyper_browsecomp.task import slice_dataset
 from hyper_browsecomp.utils import sanitize_filename
 
 
@@ -95,7 +97,7 @@ def prepare_env(config: RunConfig) -> dict[str, str]:
     return env
 
 
-def build_inspect_command(config: RunConfig) -> list[str]:
+def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = None) -> list[str]:
     command = [
         "inspect",
         "eval",
@@ -119,6 +121,10 @@ def build_inspect_command(config: RunConfig) -> list[str]:
         command.append("--no-fail-on-error")
     if config.inspect_continue_on_fail:
         command.append("--continue-on-fail")
+    if sample_ids:
+        if any("," in sample_id for sample_id in sample_ids):
+            raise ValueError("sample IDs cannot contain commas when passed to inspect --sample-id.")
+        command.extend(["--sample-id", ",".join(sample_ids)])
 
     task_args = {
         "data_path": config.data_path,
@@ -189,6 +195,81 @@ def rename_new_eval_log(config: RunConfig, *, before: set[Path], started_at: dat
     return target
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunConfig:
+    log = read_eval_log(log_path, header_only=True)
+    task_args = getattr(log.eval, "task_args", {}) or {}
+    updates: dict[str, object] = {}
+    for key in ("data_path", "sample_range"):
+        if key in task_args:
+            updates[key] = task_args[key]
+    for key in ("start_index", "end_index", "num_samples"):
+        if key in task_args:
+            updates[key] = _optional_int(task_args[key])
+    if "sample_range" in updates:
+        updates.setdefault("start_index", None)
+        updates.setdefault("end_index", None)
+        updates.setdefault("num_samples", None)
+    elif any(key in updates for key in ("start_index", "end_index", "num_samples")):
+        updates["sample_range"] = None
+
+    if not updates:
+        return config
+    data = config.model_dump()
+    data.update(updates)
+    return RunConfig.model_validate(data)
+
+
+def selected_sample_ids(config: RunConfig) -> list[str]:
+    samples = slice_dataset(
+        load_browsecomp_jsonl(config.data_path),
+        sample_range=config.sample_range,
+        start_index=config.start_index,
+        end_index=config.end_index,
+        num_samples=config.num_samples,
+    )
+    sample_ids = [getattr(sample, "id", None) for sample in samples]
+    missing_ids = [index for index, sample_id in enumerate(sample_ids, start=1) if sample_id is None]
+    if missing_ids:
+        raise ValueError(f"Dataset samples are missing IDs at selected positions: {missing_ids}")
+    return [str(sample_id) for sample_id in sample_ids]
+
+
+def _log_sample_id(sample, expected: set[str]) -> str | None:
+    sample_id = getattr(sample, "id", None)
+    if sample_id is not None and str(sample_id) in expected:
+        return str(sample_id)
+    metadata = getattr(sample, "metadata", {}) or {}
+    metadata_id = metadata.get("id")
+    if metadata_id is not None and str(metadata_id) in expected:
+        return str(metadata_id)
+    return str(sample_id) if sample_id is not None else None
+
+
+def unfinished_sample_ids(config: RunConfig, log_path: str | Path) -> list[str]:
+    expected_ids = selected_sample_ids(_config_for_log_selection(config, log_path))
+    expected = set(expected_ids)
+    log = read_eval_log(log_path)
+    finished: set[str] = set()
+    retry: set[str] = set()
+
+    for sample in log.samples or []:
+        sample_id = _log_sample_id(sample, expected)
+        if sample_id is None or sample_id not in expected:
+            continue
+        if getattr(sample, "error", None) is not None or getattr(sample, "completed_at", None) is None:
+            retry.add(sample_id)
+        else:
+            finished.add(sample_id)
+
+    return [sample_id for sample_id in expected_ids if sample_id not in finished or sample_id in retry]
+
+
 def run_with_config(config: RunConfig) -> int:
     env = prepare_env(config)
     log_dir = Path(env["INSPECT_LOG_DIR"])
@@ -202,14 +283,43 @@ def run_with_config(config: RunConfig) -> int:
     return result.returncode
 
 
+def resume_with_config(config: RunConfig, log_path: str | Path) -> int:
+    retry_ids = unfinished_sample_ids(config, log_path)
+    if not retry_ids:
+        print(f"no unfinished samples found in eval log: {log_path}")
+        return 0
+
+    resume_config = _config_for_log_selection(config, log_path)
+    env = prepare_env(resume_config)
+    log_dir = Path(env["INSPECT_LOG_DIR"])
+    before = _collect_eval_logs(log_dir)
+    command = build_inspect_command(resume_config, sample_ids=retry_ids)
+    print(f"resuming {len(retry_ids)} unfinished sample(s): {', '.join(retry_ids)}")
+    started_at = datetime.now(timezone.utc)
+    result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
+    renamed = rename_new_eval_log(resume_config, before=before, started_at=started_at)
+    if renamed is not None:
+        print(f"renamed eval log: {renamed}")
+    return result.returncode
+
+
 def main(argv: list[str] | None = None) -> int:
     args = argv or sys.argv[1:]
-    if len(args) != 1:
-        print("usage: python -m hyper_browsecomp.runner CONFIG.yaml", file=sys.stderr)
-        return 2
-    load_dotenv(PROJECT_ROOT / ".env")
-    config = load_run_config(args[0])
-    return run_with_config(config)
+    if len(args) == 1:
+        load_dotenv(PROJECT_ROOT / ".env")
+        config = load_run_config(args[0])
+        return run_with_config(config)
+    if len(args) == 3 and args[0] == "resume":
+        load_dotenv(PROJECT_ROOT / ".env")
+        config = load_run_config(args[1])
+        return resume_with_config(config, args[2])
+
+    print(
+        "usage: python -m hyper_browsecomp.runner CONFIG.yaml\n"
+        "       python -m hyper_browsecomp.runner resume CONFIG.yaml LOG.eval",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
