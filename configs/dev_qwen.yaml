@@ -10,7 +10,7 @@ data_path: data/dev.jsonl
 sample_range: "1"
 tool_profile: web
 search_backend: none
-fetch_backend: firecrawl
+fetch_backend: none
 max_steps: 3
 inspect_max_samples_parallel: 1
 inspect_model_max_retries: 1

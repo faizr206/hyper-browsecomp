@@ -40,6 +40,11 @@ def test_sample_range_rejects_mixed_slice_options() -> None:
         )
 
 
+def test_numeric_sample_range_is_normalized() -> None:
+    config = RunConfig(provider="deepseek", model_name="deepseek-chat", sample_range=1)
+    assert config.sample_range == "1"
+
+
 def test_retry_and_continue_defaults_are_resilient() -> None:
     config = RunConfig(provider="deepseek", model_name="deepseek-chat")
     assert config.inspect_model_max_retries == 1
@@ -97,6 +102,13 @@ def test_dev_config_loads() -> None:
             "PERPLEXITY_API_KEY",
             "https://api.perplexity.ai",
             "internal",
+        ),
+        (
+            "dev_openrouter_openai.yaml",
+            "openrouter",
+            "OPENROUTER_API_KEY",
+            "https://openrouter.ai/api/v1",
+            "exa",
         ),
         (
             "dev_qwen.yaml",

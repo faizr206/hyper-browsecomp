@@ -54,6 +54,10 @@ EXA_API_KEY=...
 FIRECRAWL_API_KEY=...
 ```
 
+Only set the backend key for backends selected by the YAML config. For example,
+`search_backend: exa` and `fetch_backend: exa` need `EXA_API_KEY`, while
+`fetch_backend: none` does not need `FIRECRAWL_API_KEY`.
+
 The runner maps the selected key values and YAML base URLs into Inspect's
 provider-specific environment variables before invoking `inspect eval`. For
 example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
@@ -72,6 +76,7 @@ uv run bash run_eval.sh configs/dev_grok.yaml
 uv run bash run_eval.sh configs/dev_mistral.yaml
 uv run bash run_eval.sh configs/dev_perplexity.yaml
 uv run bash run_eval.sh configs/dev_qwen.yaml
+uv run bash run_eval.sh configs/dev_openrouter_openai.yaml
 uv run bash run_eval.sh configs/web.yaml
 uv run bash run_eval.sh configs/web_code.yaml
 ```
@@ -86,6 +91,7 @@ configs/dev_grok.yaml        XAI_API_KEY         api.x.ai
 configs/dev_mistral.yaml     MISTRAL_API_KEY     https://api.mistral.ai
 configs/dev_perplexity.yaml  PERPLEXITY_API_KEY  https://api.perplexity.ai
 configs/dev_qwen.yaml        DASHSCOPE_API_KEY   https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+configs/dev_openrouter_openai.yaml OPENROUTER_API_KEY https://openrouter.ai/api/v1
 ```
 
 Each run writes `.eval` logs under `logs/` and then renames the newest run log to:

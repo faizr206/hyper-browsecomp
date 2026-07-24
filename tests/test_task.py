@@ -23,6 +23,7 @@ def test_sample_range_is_one_based_and_inclusive() -> None:
     assert parse_sample_range("1-2") == (0, 2)
     assert slice_dataset(dataset, sample_range="1-2") == ["a", "b"]
     assert slice_dataset(dataset, sample_range="3") == ["c"]
+    assert slice_dataset(dataset, sample_range=3) == ["c"]
 
 
 def test_sample_range_rejects_mixed_slice_options() -> None:

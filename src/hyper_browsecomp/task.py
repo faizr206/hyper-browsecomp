@@ -33,8 +33,8 @@ Confidence: <0-100%>
 """
 
 
-def parse_sample_range(sample_range: str) -> tuple[int, int]:
-    parts = sample_range.split("-", 1)
+def parse_sample_range(sample_range: str | int) -> tuple[int, int]:
+    parts = str(sample_range).split("-", 1)
     try:
         start_sample = int(parts[0].strip())
         end_sample = int(parts[1].strip()) if len(parts) == 2 else start_sample
@@ -52,7 +52,7 @@ def parse_sample_range(sample_range: str) -> tuple[int, int]:
 def slice_dataset(
     dataset: list,
     *,
-    sample_range: str | None = None,
+    sample_range: str | int | None = None,
     start_index: int | None = None,
     end_index: int | None = None,
     num_samples: int | None = None,
@@ -260,7 +260,7 @@ def hyper_browsecomp(
     max_steps: int = 12,
     bash_timeout: int = 120,
     python_timeout: int = 120,
-    sample_range: str | None = None,
+    sample_range: str | int | None = None,
     start_index: int | None = None,
     end_index: int | None = None,
     num_samples: int | None = None,

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
@@ -74,6 +74,13 @@ class RunConfig(BaseModel):
     inspect_no_fail_on_error: bool = True
     no_sandbox: bool = True
     log_dir: str = "logs"
+
+    @field_validator("sample_range", mode="before")
+    @classmethod
+    def normalize_sample_range(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        return str(value)
 
     @model_validator(mode="after")
     def validate_models(self) -> "RunConfig":
