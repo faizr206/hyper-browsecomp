@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from hyper_browsecomp.config import RunConfig
 from hyper_browsecomp.runner import (
     build_inspect_command,
+    main,
     prepare_env,
     rename_new_eval_log,
     unfinished_sample_ids,
@@ -108,6 +109,12 @@ def test_build_inspect_command_uses_native_provider_and_backend_args() -> None:
     assert "search_backend=internal" in command
     assert "fetch_backend=none" in command
     assert "model_provider=gemini" in command
+
+
+def test_main_without_config_returns_usage_error(capsys) -> None:
+    assert main([]) == 2
+    captured = capsys.readouterr()
+    assert "usage: python -m hyper_browsecomp.runner CONFIG.yaml" in captured.err
 
 
 def test_runner_module_invokes_inspect(tmp_path: Path) -> None:

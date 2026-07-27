@@ -304,7 +304,7 @@ def resume_with_config(config: RunConfig, log_path: str | Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = argv or sys.argv[1:]
+    args = sys.argv[1:] if argv is None else argv
     if len(args) == 1:
         load_dotenv(PROJECT_ROOT / ".env")
         config = load_run_config(args[0])

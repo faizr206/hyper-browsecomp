@@ -168,3 +168,15 @@ def test_internal_search_dev_configs_use_dev_jsonl(config_path: Path) -> None:
 def test_exa_full_configs_use_hf_dataset(config_path: Path) -> None:
     config = load_run_config(config_path)
     assert config.data_path == "afaji/HyperBrowseComp"
+    assert config.sample_range is None
+    assert config.tool_profile == "web"
+    assert config.search_backend == "exa"
+    assert config.fetch_backend == "exa"
+    assert config.max_steps == 25
+    assert config.inspect_max_samples_parallel == 50
+    assert config.inspect_model_max_retries == 2
+    assert config.inspect_attempt_timeout == 360
+    assert config.inspect_retry_on_error == 3
+    assert config.inspect_no_fail_on_error is True
+    assert config.inspect_continue_on_fail is True
+    assert config.no_sandbox is True
