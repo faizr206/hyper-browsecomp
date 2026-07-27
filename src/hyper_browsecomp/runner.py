@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from inspect_ai.log import read_eval_log
 
 from hyper_browsecomp.config import RunConfig, load_run_config
-from hyper_browsecomp.dataset import load_browsecomp_jsonl
+from hyper_browsecomp.dataset import load_browsecomp_dataset
 from hyper_browsecomp.task import slice_dataset
 from hyper_browsecomp.utils import sanitize_filename
 
@@ -227,7 +227,7 @@ def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunCon
 
 def selected_sample_ids(config: RunConfig) -> list[str]:
     samples = slice_dataset(
-        load_browsecomp_jsonl(config.data_path),
+        load_browsecomp_dataset(config.data_path),
         sample_range=config.sample_range,
         start_index=config.start_index,
         end_index=config.end_index,

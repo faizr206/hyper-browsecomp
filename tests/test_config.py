@@ -71,47 +71,53 @@ def test_dev_config_loads() -> None:
 
 
 @pytest.mark.parametrize(
-    ("config_name", "provider", "api_key_env", "base_url", "search_backend"),
+    ("config_path", "provider", "api_key_env", "base_url", "search_backend"),
     [
-        ("dev_openai.yaml", "openai", "OPENAI_API_KEY", "https://api.openai.com/v1", "internal"),
         (
-            "dev_anthropic.yaml",
+            "internal_search_dev/dev_openai.yaml",
+            "openai",
+            "OPENAI_API_KEY",
+            "https://api.openai.com/v1",
+            "internal",
+        ),
+        (
+            "internal_search_dev/dev_anthropic.yaml",
             "anthropic",
             "ANTHROPIC_API_KEY",
             "https://api.anthropic.com",
             "internal",
         ),
         (
-            "dev_gemini.yaml",
+            "internal_search_dev/dev_gemini.yaml",
             "gemini",
             "GOOGLE_API_KEY",
             "https://generativelanguage.googleapis.com",
             "internal",
         ),
-        ("dev_grok.yaml", "grok", "XAI_API_KEY", "api.x.ai", "internal"),
+        ("internal_search_dev/dev_grok.yaml", "grok", "XAI_API_KEY", "api.x.ai", "internal"),
         (
-            "dev_mistral.yaml",
+            "internal_search_dev/dev_mistral.yaml",
             "mistral",
             "MISTRAL_API_KEY",
             "https://api.mistral.ai",
             "internal",
         ),
         (
-            "dev_perplexity.yaml",
+            "internal_search_dev/dev_perplexity.yaml",
             "perplexity",
             "PERPLEXITY_API_KEY",
             "https://api.perplexity.ai",
             "internal",
         ),
         (
-            "dev_openrouter_openai.yaml",
+            "exa_dev/dev_openrouter.yaml",
             "openrouter",
             "OPENROUTER_API_KEY",
             "https://openrouter.ai/api/v1",
             "exa",
         ),
         (
-            "dev_qwen.yaml",
+            "internal_search_dev/dev_qwen.yaml",
             "qwen",
             "DASHSCOPE_API_KEY",
             "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
@@ -120,13 +126,13 @@ def test_dev_config_loads() -> None:
     ],
 )
 def test_provider_dev_configs_load(
-    config_name: str,
+    config_path: str,
     provider: str,
     api_key_env: str,
     base_url: str,
     search_backend: str,
 ) -> None:
-    config = load_run_config(Path(__file__).resolve().parents[1] / "configs" / config_name)
+    config = load_run_config(Path(__file__).resolve().parents[1] / "configs" / config_path)
     assert config.provider == provider
     assert config.scorer_provider == provider
     assert config.model_api_key_env == api_key_env
@@ -135,3 +141,30 @@ def test_provider_dev_configs_load(
     assert config.scorer_base_url == base_url
     assert config.search_backend == search_backend
     assert config.data_path == "data/dev.jsonl"
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    sorted((Path(__file__).resolve().parents[1] / "configs" / "exa_dev").glob("*.yaml")),
+)
+def test_exa_dev_configs_use_dev_jsonl(config_path: Path) -> None:
+    config = load_run_config(config_path)
+    assert config.data_path == "data/dev.jsonl"
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    sorted((Path(__file__).resolve().parents[1] / "configs" / "internal_search_dev").glob("*.yaml")),
+)
+def test_internal_search_dev_configs_use_dev_jsonl(config_path: Path) -> None:
+    config = load_run_config(config_path)
+    assert config.data_path == "data/dev.jsonl"
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    sorted((Path(__file__).resolve().parents[1] / "configs" / "exa_full").glob("*.yaml")),
+)
+def test_exa_full_configs_use_hf_dataset(config_path: Path) -> None:
+    config = load_run_config(config_path)
+    assert config.data_path == "afaji/HyperBrowseComp"

@@ -1,0 +1,22 @@
+provider: openrouter
+model_name: openai/gpt-5-mini
+scorer_provider: openrouter
+scorer_model_name: openai/gpt-5.4-mini
+model_api_key_env: OPENROUTER_API_KEY
+model_base_url: https://openrouter.ai/api/v1
+scorer_api_key_env: OPENROUTER_API_KEY
+scorer_base_url: https://openrouter.ai/api/v1
+data_path: afaji/HyperBrowseComp
+# 1-based inclusive sample numbers. Example: "1-2" evaluates samples 1 and 2 only.
+sample_range: "1-2"
+tool_profile: web
+search_backend: exa
+fetch_backend: exa
+max_steps: 25
+inspect_max_samples_parallel: 50
+inspect_model_max_retries: 2
+inspect_attempt_timeout: 360
+inspect_retry_on_error: 3
+inspect_no_fail_on_error: true
+inspect_continue_on_fail: true
+no_sandbox: true

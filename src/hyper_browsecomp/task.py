@@ -11,7 +11,7 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, bash, python, web_search as inspect_web_search
 from inspect_ai.util import SandboxEnvironmentType
 
-from hyper_browsecomp.dataset import load_browsecomp_jsonl
+from hyper_browsecomp.dataset import load_browsecomp_dataset
 from hyper_browsecomp.prompts import QUERY_TEMPLATE, WEB_ONLY_AGENT_PROMPT
 from hyper_browsecomp.scorer import browse_comp_scorer
 from hyper_browsecomp.tools import build_web_fetch_tool, build_web_search_tool
@@ -279,7 +279,7 @@ def hyper_browsecomp(
         judge_model = scorer_model
 
     dataset = slice_dataset(
-        load_browsecomp_jsonl(data_path),
+        load_browsecomp_dataset(data_path),
         sample_range=sample_range,
         start_index=start_index,
         end_index=end_index,

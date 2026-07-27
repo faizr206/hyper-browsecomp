@@ -1,6 +1,6 @@
 # hyper-browsecomp
 
-`hyper-browsecomp` is a compact Inspect AI harness for BrowseComp-style web research evals. It runs JSONL datasets from `data/`, gives the model web search and fetch tools, and scores answers with a BrowseComp-style judge.
+`hyper-browsecomp` is a compact Inspect AI harness for BrowseComp-style web research evals. It runs local JSONL datasets and the encrypted `afaji/HyperBrowseComp` Hugging Face dataset, gives the model web search and fetch tools, and scores answers with a BrowseComp-style judge.
 
 ## Install
 
@@ -58,6 +58,23 @@ Only set the backend key for backends selected by the YAML config. For example,
 `search_backend: exa` and `fetch_backend: exa` need `EXA_API_KEY`, while
 `fetch_backend: none` does not need `FIRECRAWL_API_KEY`.
 
+HyperBrowseComp on Hugging Face is also supported. Put the hex-encoded
+AES-256-GCM master key in `.env`:
+
+```bash
+HYPERBROWSECOMP_KEY=...
+```
+
+Then set the config dataset path to the repo id:
+
+```yaml
+data_path: afaji/HyperBrowseComp
+```
+
+The loader downloads the `test` split with `datasets.load_dataset()`, decrypts
+`question` and `answer` in memory, and maps each row to the same Inspect sample
+shape as the local JSONL datasets.
+
 The runner maps the selected key values and YAML base URLs into Inspect's
 provider-specific environment variables before invoking `inspect eval`. For
 example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
@@ -69,29 +86,24 @@ example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
 Use the single shell entrypoint with any YAML config:
 
 ```bash
-uv run bash run_eval.sh configs/dev_openai.yaml
-uv run bash run_eval.sh configs/dev_anthropic.yaml
-uv run bash run_eval.sh configs/dev_gemini.yaml
-uv run bash run_eval.sh configs/dev_grok.yaml
-uv run bash run_eval.sh configs/dev_mistral.yaml
-uv run bash run_eval.sh configs/dev_perplexity.yaml
-uv run bash run_eval.sh configs/dev_qwen.yaml
-uv run bash run_eval.sh configs/dev_openrouter_openai.yaml
-uv run bash run_eval.sh configs/web.yaml
+uv run bash run_eval.sh configs/exa_dev/dev_openai.yaml
+uv run bash run_eval.sh configs/internal_search_dev/dev_openai.yaml
+uv run bash run_eval.sh configs/exa_full/openai.yaml
 uv run bash run_eval.sh configs/web_code.yaml
 ```
 
-The provider smoke configs all run the single-question `data/dev.jsonl` dataset:
+The dev configs all run the single-question `data/dev.jsonl` dataset:
 
 ```text
-configs/dev_openai.yaml      OPENAI_API_KEY      https://api.openai.com/v1
-configs/dev_anthropic.yaml   ANTHROPIC_API_KEY   https://api.anthropic.com
-configs/dev_gemini.yaml      GOOGLE_API_KEY      https://generativelanguage.googleapis.com
-configs/dev_grok.yaml        XAI_API_KEY         api.x.ai
-configs/dev_mistral.yaml     MISTRAL_API_KEY     https://api.mistral.ai
-configs/dev_perplexity.yaml  PERPLEXITY_API_KEY  https://api.perplexity.ai
-configs/dev_qwen.yaml        DASHSCOPE_API_KEY   https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-configs/dev_openrouter_openai.yaml OPENROUTER_API_KEY https://openrouter.ai/api/v1
+configs/exa_dev/*.yaml
+configs/internal_search_dev/*.yaml
+```
+
+The full Exa configs run the encrypted Hugging Face dataset and require
+`HYPERBROWSECOMP_KEY`:
+
+```text
+configs/exa_full/*.yaml      afaji/HyperBrowseComp
 ```
 
 Each run writes `.eval` logs under `logs/` and then renames the newest run log to:
@@ -104,7 +116,7 @@ If a run stops in the middle, resume it by passing the original config and the
 partial `.eval` log:
 
 ```bash
-uv run bash run_eval.sh resume configs/web.yaml logs/dev_gpt-5.4-mini_20260723T120000Z_abc123.eval
+uv run bash run_eval.sh resume configs/exa_full/openai.yaml logs/HyperBrowseComp_gpt-5.4-mini_20260723T120000Z_abc123.eval
 ```
 
 The resume command reads the original run's sample selection from the log, finds

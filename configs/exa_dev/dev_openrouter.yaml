@@ -6,7 +6,7 @@ model_api_key_env: OPENROUTER_API_KEY
 model_base_url: https://openrouter.ai/api/v1
 scorer_api_key_env: OPENROUTER_API_KEY
 scorer_base_url: https://openrouter.ai/api/v1
-data_path: data/browsecomp_multilingual_indonesian_new.jsonl
+data_path: data/dev.jsonl
 # 1-based inclusive sample numbers. Example: "1-2" evaluates samples 1 and 2 only.
 sample_range: "1-2"
 tool_profile: web
