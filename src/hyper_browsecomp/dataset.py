@@ -20,6 +20,9 @@ HYPERBROWSECOMP_KEY_ENV_NAMES = (
     "HYPER_BROWSECOMP_KEY",
     "HYPERBROWSECOMP_MASTER_KEY",
 )
+HYPERBROWSECOMP_REDACTED_QUESTION = "[REDACTED_HYPERBROWSECOMP_QUESTION]"
+HYPERBROWSECOMP_REDACTED_ANSWER = "[REDACTED_HYPERBROWSECOMP_ANSWER]"
+_HYPERBROWSECOMP_CONFIDENTIAL: dict[str, dict[str, Any]] = {}
 
 
 class BrowseCompRecord(BaseModel):
@@ -53,6 +56,42 @@ def record_to_sample(record: dict[str, Any], *, source: str = "<record>") -> Sam
         target=item.answers,
         metadata=metadata,
     )
+
+
+def confidential_question(sample_id: str | int, fallback: str) -> str:
+    item = _HYPERBROWSECOMP_CONFIDENTIAL.get(str(sample_id))
+    if item and isinstance(item.get("question"), str):
+        return item["question"]
+    return fallback
+
+
+def confidential_answers(sample_id: str | int, fallback: list[str]) -> list[str]:
+    item = _HYPERBROWSECOMP_CONFIDENTIAL.get(str(sample_id))
+    if item and isinstance(item.get("answers"), list):
+        return [str(answer) for answer in item["answers"]]
+    return fallback
+
+
+def confidential_log_replacements() -> list[tuple[str, str]]:
+    replacements: list[tuple[str, str]] = []
+    for sample_id, item in _HYPERBROWSECOMP_CONFIDENTIAL.items():
+        question = item.get("question")
+        if isinstance(question, str) and question:
+            replacements.append(
+                (question, f"{HYPERBROWSECOMP_REDACTED_QUESTION}:{sample_id}")
+            )
+    return sorted(replacements, key=lambda item: len(item[0]), reverse=True)
+
+
+def confidential_answer_replacements() -> list[tuple[str, str]]:
+    replacements: list[tuple[str, str]] = []
+    for sample_id, item in _HYPERBROWSECOMP_CONFIDENTIAL.items():
+        for answer in item.get("answers", []):
+            if isinstance(answer, str) and answer:
+                replacements.append(
+                    (answer, f"{HYPERBROWSECOMP_REDACTED_ANSWER}:{sample_id}")
+                )
+    return sorted(replacements, key=lambda item: len(item[0]), reverse=True)
 
 
 def load_browsecomp_jsonl(path: str | Path) -> list[Sample]:
@@ -111,6 +150,13 @@ def _decrypt_hyperbrowsecomp_field(
     return aesgcm.decrypt(_hyperbrowsecomp_nonce(canary, field), ciphertext, None).decode("utf-8")
 
 
+def _hyperbrowsecomp_record_id(row: dict[str, Any], *, index: int) -> str:
+    if "id" not in row or row["id"] is None:
+        return f"hyperbrowsecomp-{index:03d}"
+    record_id = str(row["id"]).strip()
+    return record_id or f"hyperbrowsecomp-{index:03d}"
+
+
 def _hyperbrowsecomp_record_to_sample(row: dict[str, Any], *, index: int) -> Sample:
     key_text = _hyperbrowsecomp_key()
     try:
@@ -137,24 +183,33 @@ def _hyperbrowsecomp_record_to_sample(row: dict[str, Any], *, index: int) -> Sam
         field="answer",
     )
 
-    record_id = str(row.get("id") or f"hyperbrowsecomp-{index:03d}")
-    return record_to_sample(
-        {
+    record_id = _hyperbrowsecomp_record_id(row, index=index)
+    _HYPERBROWSECOMP_CONFIDENTIAL[record_id] = {
+        "question": question,
+        "answers": [answer],
+    }
+
+    return Sample(
+        id=record_id,
+        input=f"{HYPERBROWSECOMP_REDACTED_QUESTION}:{record_id}",
+        target=[f"{HYPERBROWSECOMP_REDACTED_ANSWER}:{record_id}"],
+        metadata={
             "id": record_id,
-            "question": question,
-            "answers": [answer],
             "answer_type": "entity",
             "language": str(row.get("language") or "en"),
+            "modalities": ["web"],
             "source_metadata": {
                 "dataset": HYPERBROWSECOMP_HF_DATASET,
+                "hf_id": record_id,
                 "canary": canary,
             },
+            "confidential": True,
         },
-        source=f"{HYPERBROWSECOMP_HF_DATASET}:test[{index - 1}]",
     )
 
 
 def load_hyperbrowsecomp_hf(dataset_name: str = HYPERBROWSECOMP_HF_DATASET) -> list[Sample]:
+    _HYPERBROWSECOMP_CONFIDENTIAL.clear()
     datasets = _load_optional_dependency("datasets", "datasets")
     hf_dataset = datasets.load_dataset(dataset_name, split="test")
     samples = [

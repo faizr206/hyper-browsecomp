@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from inspect_ai.log import read_eval_log
+from inspect_ai.log import read_eval_log, write_eval_log
+from pydantic import BaseModel
 
 from hyper_browsecomp.config import RunConfig, load_run_config
-from hyper_browsecomp.dataset import load_browsecomp_dataset
+from hyper_browsecomp.dataset import (
+    confidential_answer_replacements,
+    confidential_log_replacements,
+    load_browsecomp_dataset,
+)
 from hyper_browsecomp.task import slice_dataset
 from hyper_browsecomp.utils import sanitize_filename
 
@@ -195,6 +201,95 @@ def rename_new_eval_log(config: RunConfig, *, before: set[Path], started_at: dat
     return target
 
 
+def _redact_text(
+    text: str,
+    replacements: list[tuple[str, str]],
+    answer_replacements: list[tuple[str, str]] | None = None,
+) -> str:
+    for secret, replacement in replacements:
+        text = text.replace(secret, replacement)
+    for secret, replacement in answer_replacements or []:
+        text = re.sub(
+            rf"(?m)^(\[correct_answer\]:\s*){re.escape(secret)}(\s*)$",
+            rf"\1{replacement}\2",
+            text,
+        )
+    return text
+
+
+def _redact_value(
+    value: object,
+    replacements: list[tuple[str, str]],
+    seen: set[int],
+    answer_replacements: list[tuple[str, str]] | None = None,
+) -> object:
+    if isinstance(value, str):
+        return _redact_text(value, replacements, answer_replacements)
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = _redact_value(item, replacements, seen, answer_replacements)
+        return value
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item, replacements, seen, answer_replacements) for item in value)
+    if isinstance(value, dict):
+        for key, item in list(value.items()):
+            value[key] = _redact_value(item, replacements, seen, answer_replacements)
+        return value
+    if isinstance(value, BaseModel):
+        identity = id(value)
+        if identity in seen:
+            return value
+        seen.add(identity)
+        for field_name in value.__class__.model_fields:
+            try:
+                current = getattr(value, field_name)
+                redacted = _redact_value(current, replacements, seen, answer_replacements)
+                if redacted is not current:
+                    setattr(value, field_name, redacted)
+            except Exception:
+                continue
+        return value
+    return value
+
+
+def _hide_score_explanation(score: object) -> None:
+    if hasattr(score, "explanation"):
+        score.explanation = "Grader reasoning hidden for confidential sample."
+    elif isinstance(score, dict) and "explanation" in score:
+        score["explanation"] = "Grader reasoning hidden for confidential sample."
+
+
+def _hide_confidential_score_explanations(log: BaseModel) -> None:
+    for sample in getattr(log, "samples", None) or []:
+        metadata = getattr(sample, "metadata", {}) or {}
+        if not metadata.get("confidential"):
+            continue
+        for score in (getattr(sample, "scores", None) or {}).values():
+            _hide_score_explanation(score)
+        for event in getattr(sample, "events", None) or []:
+            _hide_score_explanation(getattr(event, "score", None))
+
+
+def sanitize_eval_log(config: RunConfig, log_path: str | Path) -> bool:
+    slice_dataset(
+        load_browsecomp_dataset(config.data_path),
+        sample_range=config.sample_range,
+        start_index=config.start_index,
+        end_index=config.end_index,
+        num_samples=config.num_samples,
+    )
+    replacements = confidential_log_replacements()
+    answer_replacements = confidential_answer_replacements()
+    if not replacements and not answer_replacements:
+        return False
+
+    log = read_eval_log(log_path)
+    _redact_value(log, replacements, set(), answer_replacements)
+    _hide_confidential_score_explanations(log)
+    write_eval_log(log, log_path)
+    return True
+
+
 def _optional_int(value: object) -> int | None:
     if value is None or value == "":
         return None
@@ -279,17 +374,22 @@ def run_with_config(config: RunConfig) -> int:
     result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
     renamed = rename_new_eval_log(config, before=before, started_at=started_at)
     if renamed is not None:
+        if sanitize_eval_log(config, renamed):
+            print(f"sanitized eval log: {renamed}")
         print(f"renamed eval log: {renamed}")
     return result.returncode
 
 
 def resume_with_config(config: RunConfig, log_path: str | Path) -> int:
+    resume_config = _config_for_log_selection(config, log_path)
+    if sanitize_eval_log(resume_config, log_path):
+        print(f"sanitized eval log: {log_path}")
+
     retry_ids = unfinished_sample_ids(config, log_path)
     if not retry_ids:
         print(f"no unfinished samples found in eval log: {log_path}")
         return 0
 
-    resume_config = _config_for_log_selection(config, log_path)
     env = prepare_env(resume_config)
     log_dir = Path(env["INSPECT_LOG_DIR"])
     before = _collect_eval_logs(log_dir)
@@ -299,6 +399,8 @@ def resume_with_config(config: RunConfig, log_path: str | Path) -> int:
     result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
     renamed = rename_new_eval_log(resume_config, before=before, started_at=started_at)
     if renamed is not None:
+        if sanitize_eval_log(resume_config, renamed):
+            print(f"sanitized eval log: {renamed}")
         print(f"renamed eval log: {renamed}")
     return result.returncode
 

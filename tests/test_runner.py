@@ -8,9 +8,11 @@ from types import SimpleNamespace
 from hyper_browsecomp.config import RunConfig
 from hyper_browsecomp.runner import (
     build_inspect_command,
+    _hide_confidential_score_explanations,
     main,
     prepare_env,
     rename_new_eval_log,
+    _redact_value,
     unfinished_sample_ids,
 )
 
@@ -188,6 +190,71 @@ def test_rename_new_eval_log_uses_requested_pattern(tmp_path: Path, monkeypatch)
     assert renamed is not None
     assert renamed.name == "my_dataset_deepseek-chat_20260717T100000Z_abc123.eval"
     assert renamed.exists()
+
+
+def test_redact_value_recursively_replaces_secret_text() -> None:
+    value = {
+        "input": "Question?",
+        "events": [{"prompt": "Solve: Question?"}],
+        "target": ["Answer"],
+    }
+
+    _redact_value(
+        value,
+        [
+            ("Question?", "[REDACTED_Q]"),
+            ("Answer", "[REDACTED_A]"),
+        ],
+        set(),
+    )
+
+    assert value == {
+        "input": "[REDACTED_Q]",
+        "events": [{"prompt": "Solve: [REDACTED_Q]"}],
+        "target": ["[REDACTED_A]"],
+    }
+
+
+def test_redact_value_only_replaces_answers_in_grader_line() -> None:
+    value = {
+        "prompt": "[correct_answer]: 0",
+        "stats": "total 100 tokens, score 0.000",
+    }
+
+    _redact_value(value, [], set(), [("0", "[REDACTED_A]")])
+
+    assert value == {
+        "prompt": "[correct_answer]: [REDACTED_A]",
+        "stats": "total 100 tokens, score 0.000",
+    }
+
+
+def test_hide_confidential_score_explanations() -> None:
+    log = SimpleNamespace(
+        samples=[
+            SimpleNamespace(
+                metadata={"confidential": True},
+                scores={"browse_comp_scorer": SimpleNamespace(explanation="correct answer is 75")},
+                events=[SimpleNamespace(score=SimpleNamespace(explanation="correct answer is 75"))],
+            ),
+            SimpleNamespace(
+                metadata={},
+                scores={"browse_comp_scorer": SimpleNamespace(explanation="ordinary")},
+                events=[],
+            ),
+        ]
+    )
+
+    _hide_confidential_score_explanations(log)
+
+    assert (
+        log.samples[0].scores["browse_comp_scorer"].explanation
+        == "Grader reasoning hidden for confidential sample."
+    )
+    assert log.samples[0].events[0].score.explanation == (
+        "Grader reasoning hidden for confidential sample."
+    )
+    assert log.samples[1].scores["browse_comp_scorer"].explanation == "ordinary"
 
 
 def test_unfinished_sample_ids_returns_missing_and_error_samples(

@@ -12,7 +12,7 @@ sample_range: "1-2"
 tool_profile: web
 search_backend: exa
 fetch_backend: exa
-max_steps: 25
+max_steps: 5
 inspect_max_samples_parallel: 50
 inspect_model_max_retries: 2
 inspect_attempt_timeout: 360

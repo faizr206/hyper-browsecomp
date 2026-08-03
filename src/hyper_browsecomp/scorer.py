@@ -20,6 +20,7 @@ from inspect_ai.scorer import (
 from inspect_ai.solver import TaskState
 
 from hyper_browsecomp.prompts import GRADER_TEMPLATE
+from hyper_browsecomp.dataset import confidential_answers, confidential_question
 from hyper_browsecomp.utils import clear_substring, ensure_list, normalize_text
 
 
@@ -168,6 +169,15 @@ def _target_for_grader(target: Target) -> str:
     return " OR ".join(_target_values(target))
 
 
+def _sample_id(state: TaskState) -> str:
+    metadata = _state_metadata(state)
+    return str(metadata.get("id") or getattr(state, "sample_id", "unknown"))
+
+
+def _is_confidential_sample(state: TaskState) -> bool:
+    return bool(_state_metadata(state).get("confidential"))
+
+
 @scorer(metrics=[browse_comp_accuracy(), calibration_error()])
 def browse_comp_scorer(scorer_model: inspect_model.Model):
     judge = scorer_model
@@ -176,9 +186,11 @@ def browse_comp_scorer(scorer_model: inspect_model.Model):
         completion = getattr(getattr(state, "output", None), "completion", "") or ""
         grading_response = await judge.generate(
             GRADER_TEMPLATE.format(
-                question=state.input_text,
+                question=confidential_question(_sample_id(state), state.input_text),
                 response=completion,
-                correct_answer=_target_for_grader(target),
+                correct_answer=" OR ".join(
+                    confidential_answers(_sample_id(state), _target_values(target))
+                ),
             )
         )
         grader_text = grading_response.completion
@@ -190,10 +202,14 @@ def browse_comp_scorer(scorer_model: inspect_model.Model):
         reasoning_match = re.search(r"reasoning:\s*(.*?)(?=\n\s*correct:|$)", grader_text, re.I | re.S)
         answer_match = re.search(r"extracted_final_answer:\s*(.*)", grader_text, re.I)
 
+        explanation = reasoning_match.group(1).strip() if reasoning_match else grader_text
+        if _is_confidential_sample(state):
+            explanation = "Grader reasoning hidden for confidential sample."
+
         return Score(
             value={"score": CORRECT if is_correct else INCORRECT, "confidence": confidence},
             answer=answer_match.group(1).strip() if answer_match else extract_final_answer(completion),
-            explanation=reasoning_match.group(1).strip() if reasoning_match else grader_text,
+            explanation=explanation,
         )
 
     return score

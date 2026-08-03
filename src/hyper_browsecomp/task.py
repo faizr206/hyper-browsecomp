@@ -11,7 +11,7 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, bash, python, web_search as inspect_web_search
 from inspect_ai.util import SandboxEnvironmentType
 
-from hyper_browsecomp.dataset import load_browsecomp_dataset
+from hyper_browsecomp.dataset import confidential_question, load_browsecomp_dataset
 from hyper_browsecomp.prompts import QUERY_TEMPLATE, WEB_ONLY_AGENT_PROMPT
 from hyper_browsecomp.scorer import browse_comp_scorer
 from hyper_browsecomp.tools import build_web_fetch_tool, build_web_search_tool
@@ -92,6 +92,10 @@ def resolve_sandbox(
 def sample_id(state: TaskState) -> str:
     metadata = getattr(state, "metadata", {}) or {}
     return str(metadata.get("id") or getattr(state, "sample_id", "unknown"))
+
+
+def sample_question(state: TaskState) -> str:
+    return confidential_question(sample_id(state), state.input_text)
 
 
 def agent_prompt_for_backends(
@@ -232,7 +236,7 @@ def web_research_solver(
             ),
             on_continue=limit_steps,
         )
-        agent_state = await run(agent, QUERY_TEMPLATE.format(question=state.input_text))
+        agent_state = await run(agent, QUERY_TEMPLATE.format(question=sample_question(state)))
         if reached_limit and not agent_state.output.completion.strip():
             messages = [
                 *agent_state.messages,

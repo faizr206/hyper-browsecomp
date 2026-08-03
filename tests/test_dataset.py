@@ -5,6 +5,11 @@ from types import ModuleType
 import pytest
 
 from hyper_browsecomp.dataset import (
+    HYPERBROWSECOMP_REDACTED_ANSWER,
+    HYPERBROWSECOMP_REDACTED_QUESTION,
+    confidential_answers,
+    confidential_log_replacements,
+    confidential_question,
     _hyperbrowsecomp_nonce,
     load_browsecomp_dataset,
     load_browsecomp_jsonl,
@@ -63,10 +68,11 @@ def test_load_browsecomp_dataset_decrypts_hyperbrowsecomp(monkeypatch) -> None:
 
     fake_datasets = ModuleType("datasets")
     fake_datasets.load_dataset = lambda dataset_name, split: [
-        {
-            "language": "ko",
-            "canary": canary,
-            "question": encrypt("question", "Question?"),
+            {
+                "id": "hbc-123",
+                "language": "ko",
+                "canary": canary,
+                "question": encrypt("question", "Question?"),
             "answer": encrypt("answer", "Answer"),
         }
     ]
@@ -76,7 +82,44 @@ def test_load_browsecomp_dataset_decrypts_hyperbrowsecomp(monkeypatch) -> None:
     samples = load_browsecomp_dataset("afaji/HyperBrowseComp")
 
     assert len(samples) == 1
-    assert samples[0].id == "hyperbrowsecomp-001"
-    assert samples[0].input == "Question?"
-    assert samples[0].target == ["Answer"]
+    assert samples[0].id == "hbc-123"
+    assert samples[0].input == f"{HYPERBROWSECOMP_REDACTED_QUESTION}:hbc-123"
+    assert samples[0].target == [f"{HYPERBROWSECOMP_REDACTED_ANSWER}:hbc-123"]
     assert samples[0].metadata["language"] == "ko"
+    assert samples[0].metadata["source_metadata"]["hf_id"] == "hbc-123"
+    assert confidential_question("hbc-123", "fallback") == "Question?"
+    assert confidential_answers("hbc-123", ["fallback"]) == ["Answer"]
+    assert confidential_log_replacements() == [
+        ("Question?", f"{HYPERBROWSECOMP_REDACTED_QUESTION}:hbc-123")
+    ]
+
+
+def test_load_browsecomp_dataset_preserves_zero_hyperbrowsecomp_id(monkeypatch) -> None:
+    cryptography = pytest.importorskip("cryptography.hazmat.primitives.ciphers.aead")
+
+    key = bytes(range(32))
+    canary = "test-canary-zero"
+
+    def encrypt(field: str, plaintext: str) -> str:
+        aesgcm = cryptography.AESGCM(key)
+        ciphertext = aesgcm.encrypt(_hyperbrowsecomp_nonce(canary, field), plaintext.encode(), None)
+        return base64.b64encode(ciphertext).decode()
+
+    fake_datasets = ModuleType("datasets")
+    fake_datasets.load_dataset = lambda dataset_name, split: [
+        {
+            "id": 0,
+            "language": "en",
+            "canary": canary,
+            "question": encrypt("question", "Zero?"),
+            "answer": encrypt("answer", "Zero"),
+        }
+    ]
+    monkeypatch.setitem(sys.modules, "datasets", fake_datasets)
+    monkeypatch.setenv("HYPERBROWSECOMP_KEY", key.hex())
+
+    samples = load_browsecomp_dataset("afaji/HyperBrowseComp")
+
+    assert samples[0].id == "0"
+    assert samples[0].metadata["id"] == "0"
+    assert samples[0].metadata["source_metadata"]["hf_id"] == "0"
