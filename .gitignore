@@ -19,3 +19,6 @@ logs/
 data/*
 !data/dev.jsonl
 .inspect_home/
+
+tmp/
+artifacts/
