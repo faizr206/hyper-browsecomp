@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -114,6 +115,9 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
 
     if config.resolved_model().startswith("openai-api/"):
         command.extend(["-M", "strict_tools=false"])
+
+    for key, value in config.model_args.items():
+        command.extend(["-M", f"{key}={json.dumps(value, separators=(',', ':'))}"])
 
     command.extend(["--max-samples", str(config.inspect_max_samples_parallel)])
 

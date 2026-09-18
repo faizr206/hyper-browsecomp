@@ -20,6 +20,11 @@ def test_config_resolves_gemini_alias_to_google_provider() -> None:
     assert config.resolved_model() == "google/gemini-2.5-pro"
 
 
+def test_config_resolves_openrouter_as_native_provider() -> None:
+    config = RunConfig(provider="openrouter", model_name="anthropic/claude-fable-5.1")
+    assert config.resolved_model() == "openrouter/anthropic/claude-fable-5.1"
+
+
 def test_config_allows_prequalified_model() -> None:
     config = RunConfig(model="openai-api/openrouter/qwen/qwen3-32b")
     assert config.resolved_model() == "openai-api/openrouter/qwen/qwen3-32b"
@@ -68,6 +73,18 @@ def test_dev_config_loads() -> None:
     assert config.model_api_key_env == "OPENAI_API_KEY"
     assert config.model_base_url == "https://api.openai.com/v1"
     assert config.tool_profile == "web"
+
+
+def test_openrouter_fable_config_pins_google_vertex() -> None:
+    config = load_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "internal_full"
+        / "openrouter_fable_51.yaml"
+    )
+    assert config.resolved_model() == "openrouter/anthropic/claude-fable-5.1"
+    assert config.model_args == {"provider": {"only": ["google-vertex"]}}
+    assert config.resolved_scorer_model() is None
 
 
 @pytest.mark.parametrize(

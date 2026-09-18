@@ -85,6 +85,17 @@ def test_build_inspect_command_adds_strict_tools_false() -> None:
     assert "--continue-on-fail" in command
 
 
+def test_build_inspect_command_passes_model_args_as_json() -> None:
+    config = RunConfig(
+        provider="openrouter",
+        model_name="anthropic/claude-fable-5.1",
+        model_args={"provider": {"only": ["google-vertex"]}},
+    )
+    command = build_inspect_command(config)
+    assert "openrouter/anthropic/claude-fable-5.1" in command
+    assert 'provider={"only":["google-vertex"]}' in command
+
+
 def test_build_inspect_command_passes_sample_range() -> None:
     config = RunConfig(provider="deepseek", model_name="deepseek-chat", sample_range="1-2")
     command = build_inspect_command(config)

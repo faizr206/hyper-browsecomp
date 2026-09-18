@@ -155,6 +155,7 @@ no_sandbox: true
 Key fields:
 
 - `model` or `provider` + `model_name`
+- `model_args`: provider-specific model arguments passed through Inspect's `-M` option
 - `scorer_model` or `scorer_provider` + `scorer_model_name`
 - `model_api_key_env`, `model_base_url`
 - `scorer_api_key_env`, `scorer_base_url`

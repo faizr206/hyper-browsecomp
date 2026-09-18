@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
@@ -22,6 +22,7 @@ NATIVE_PROVIDERS = {
     "google",
     "grok",
     "mistral",
+    "openrouter",
     "perplexity",
 }
 
@@ -44,6 +45,7 @@ class RunConfig(BaseModel):
     provider: str | None = None
     model_name: str | None = None
     model: str | None = None
+    model_args: dict[str, Any] = Field(default_factory=dict)
     scorer_provider: str | None = None
     scorer_model_name: str | None = None
     scorer_model: str | None = None

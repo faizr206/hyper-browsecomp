@@ -1,11 +1,11 @@
 provider: openrouter
 model_name: anthropic/claude-fable-5.1
-scorer_provider: openrouter
-scorer_model_name: anthropic/claude-fable-5.1
+model_args:
+  provider:
+    only:
+      - google-vertex
 model_api_key_env: OPENROUTER_API_KEY
 model_base_url: https://openrouter.ai/api/v1
-scorer_api_key_env: OPENROUTER_API_KEY
-scorer_base_url: https://openrouter.ai/api/v1
 data_path: afaji/HyperBrowseComp
 tool_profile: web
 search_backend: internal
