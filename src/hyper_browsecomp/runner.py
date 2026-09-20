@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -76,6 +77,32 @@ def _scorer_provider(config: RunConfig) -> str | None:
     return config.scorer_provider or _model_provider_from_string(config.scorer_model)
 
 
+def configured_sample_ids(config: RunConfig) -> list[str] | None:
+    if config.sample_ids_path is None:
+        return None
+    path = Path(config.sample_ids_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    if not path.is_file():
+        raise ValueError(f"sample_ids_path does not exist: {path}")
+
+    sample_ids = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not sample_ids:
+        raise ValueError(f"sample_ids_path contains no sample IDs: {path}")
+    duplicates = sorted(
+        sample_id for sample_id, count in Counter(sample_ids).items() if count > 1
+    )
+    if duplicates:
+        raise ValueError(
+            f"sample_ids_path contains duplicate IDs: {', '.join(duplicates)}"
+        )
+    return sample_ids
+
+
 def prepare_env(config: RunConfig) -> dict[str, str]:
     env = os.environ.copy()
 
@@ -133,10 +160,13 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
         command.append("--continue-on-fail")
     if not config.inspect_ctl_server:
         command.extend(["--ctl-server", "false"])
-    if sample_ids:
-        if any("," in sample_id for sample_id in sample_ids):
+    effective_sample_ids = (
+        sample_ids if sample_ids is not None else configured_sample_ids(config)
+    )
+    if effective_sample_ids:
+        if any("," in sample_id for sample_id in effective_sample_ids):
             raise ValueError("sample IDs cannot contain commas when passed to inspect --sample-id.")
-        command.extend(["--sample-id", ",".join(sample_ids)])
+        command.extend(["--sample-id", ",".join(effective_sample_ids)])
 
     task_args: dict[str, object] = {
         "data_path": config.data_path,
@@ -400,6 +430,22 @@ def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunCon
 
 
 def selected_sample_ids(config: RunConfig) -> list[str]:
+    requested_ids = configured_sample_ids(config)
+    if requested_ids is not None:
+        samples = load_browsecomp_dataset(config.data_path)
+        available_ids = {
+            str(sample_id)
+            for sample in samples
+            if (sample_id := getattr(sample, "id", None)) is not None
+        }
+        missing = [sample_id for sample_id in requested_ids if sample_id not in available_ids]
+        if missing:
+            raise ValueError(
+                "sample_ids_path contains IDs absent from the dataset: "
+                + ", ".join(missing)
+            )
+        return requested_ids
+
     samples = slice_dataset(
         load_browsecomp_dataset(config.data_path),
         sample_range=config.sample_range,

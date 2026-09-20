@@ -6,9 +6,12 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from hyper_browsecomp.config import RunConfig
 from hyper_browsecomp.runner import (
     build_inspect_command,
+    configured_sample_ids,
     finalize_unfinished_owl_traces,
     _hide_confidential_score_explanations,
     main,
@@ -110,6 +113,34 @@ def test_build_inspect_command_can_limit_sample_ids() -> None:
     command = build_inspect_command(config, sample_ids=["q2", "q3"])
     assert "--sample-id" in command
     assert "q2,q3" in command
+
+
+def test_build_inspect_command_reads_sample_ids_path(tmp_path: Path) -> None:
+    ids_path = tmp_path / "retained.txt"
+    ids_path.write_text("q3\n\n# excluded\nq1\n", encoding="utf-8")
+    config = RunConfig(
+        provider="deepseek",
+        model_name="deepseek-chat",
+        sample_ids_path=str(ids_path),
+    )
+
+    command = build_inspect_command(config)
+
+    assert configured_sample_ids(config) == ["q3", "q1"]
+    assert command[command.index("--sample-id") + 1] == "q3,q1"
+
+
+def test_configured_sample_ids_rejects_duplicates(tmp_path: Path) -> None:
+    ids_path = tmp_path / "retained.txt"
+    ids_path.write_text("q1\nq1\n", encoding="utf-8")
+    config = RunConfig(
+        provider="deepseek",
+        model_name="deepseek-chat",
+        sample_ids_path=str(ids_path),
+    )
+
+    with pytest.raises(ValueError, match="duplicate IDs"):
+        configured_sample_ids(config)
 
 
 def test_build_inspect_command_uses_native_provider_and_backend_args() -> None:

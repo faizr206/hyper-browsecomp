@@ -129,6 +129,16 @@ def test_sample_range_rejects_mixed_slice_options() -> None:
         )
 
 
+def test_sample_ids_path_rejects_other_selection_options() -> None:
+    with pytest.raises(ValueError, match="sample_ids_path cannot be combined"):
+        RunConfig(
+            provider="deepseek",
+            model_name="deepseek-chat",
+            sample_ids_path="retained.txt",
+            sample_range="1-2",
+        )
+
+
 def test_numeric_sample_range_is_normalized() -> None:
     config = RunConfig(provider="deepseek", model_name="deepseek-chat", sample_range=1)
     assert config.sample_range == "1"

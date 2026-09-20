@@ -201,7 +201,7 @@ Key fields:
 - `tool_profile`: `web` or `web_code`
 - `search_backend`: `internal`, `exa`, `firecrawl`, or `none`
 - `fetch_backend`: `exa`, `firecrawl`, or `none`
-- `data_path`, `sample_range`, `start_index`, `end_index`, `num_samples`
+- `data_path`, `sample_ids_path`, `sample_range`, `start_index`, `end_index`, `num_samples`
 - `max_steps`
 - `inspect_max_samples_parallel`, `inspect_model_max_retries`, `inspect_attempt_timeout`
 - `inspect_retry_on_error`, `inspect_no_fail_on_error`, `inspect_continue_on_fail`,
@@ -274,6 +274,13 @@ after watching memory and provider rate-limit errors. Eight workers may improve
 throughput on larger hosts, but it also doubles simultaneous Chromium and model
 traffic; it should be treated as a separate capacity test rather than the
 default benchmark setting.
+
+For clusters with per-job wall-time limits, the repository includes a
+conservative SLURM array launcher for the 423 IDs retained by the no-internet
+filter. It runs shards of at most 25 IDs with two workers and an eight-hour
+hard limit per shard. See
+[`slurm/README.md`](slurm/README.md) for installation, submission, output, and
+resume instructions.
 
 `sample_range` is the easiest way to run a subset. It uses 1-based inclusive sample
 numbers, so `sample_range: "1-2"` runs dataset samples 1 and 2. The older

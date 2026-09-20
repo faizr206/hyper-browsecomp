@@ -79,6 +79,7 @@ class RunConfig(BaseModel):
     owl_trace_dir: str = "logs/owl/traces"
     bash_timeout: int = 120
     python_timeout: int = 120
+    sample_ids_path: str | None = None
     sample_range: str | None = None
     start_index: int | None = None
     end_index: int | None = None
@@ -117,6 +118,19 @@ class RunConfig(BaseModel):
             raise ValueError(
                 "owl_finalize_reserve_seconds must be smaller than "
                 "owl_task_timeout_seconds."
+            )
+        selection_values = (
+            self.sample_range,
+            self.start_index,
+            self.end_index,
+            self.num_samples,
+        )
+        if self.sample_ids_path is not None and any(
+            value is not None for value in selection_values
+        ):
+            raise ValueError(
+                "sample_ids_path cannot be combined with sample_range, "
+                "start_index, end_index, or num_samples."
             )
         if self.sample_range is not None and any(
             value is not None for value in (self.start_index, self.end_index, self.num_samples)
