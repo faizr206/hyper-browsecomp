@@ -18,6 +18,10 @@ wheels/
 logs/
 data/*
 !data/dev.jsonl
+!data/owl_multimodal_smoke.jsonl
+!data/owl_video_smoke.jsonl
+!data/owl_bilibili_smoke.jsonl
+!data/owl_media_smoke.jsonl
 .inspect_home/
 
 tmp/

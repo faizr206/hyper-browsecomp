@@ -32,6 +32,7 @@ class BrowseCompRecord(BaseModel):
     answer_type: str = "entity"
     language: str = "en"
     modalities: list[str] = Field(default_factory=lambda: ["web"])
+    image_urls: list[str] = Field(default_factory=list)
     source_metadata: dict[str, str] = Field(default_factory=dict)
 
 
@@ -49,6 +50,8 @@ def record_to_sample(record: dict[str, Any], *, source: str = "<record>") -> Sam
     }
     if item.source_metadata:
         metadata["source_metadata"] = item.source_metadata
+    if item.image_urls:
+        metadata["image_urls"] = item.image_urls
 
     return Sample(
         id=item.id,

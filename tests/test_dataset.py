@@ -32,6 +32,19 @@ def test_record_to_sample_keeps_metadata() -> None:
     assert sample.target == ["Ada"]
 
 
+def test_record_to_sample_keeps_image_urls_for_multimodal_harness() -> None:
+    sample = record_to_sample(
+        {
+            "id": "visual-1",
+            "question": "What is shown?",
+            "answers": ["A logo"],
+            "modalities": ["web", "image"],
+            "image_urls": ["https://example.com/logo.png"],
+        }
+    )
+    assert sample.metadata["image_urls"] == ["https://example.com/logo.png"]
+
+
 def test_load_browsecomp_jsonl_rejects_empty(tmp_path) -> None:
     path = tmp_path / "empty.jsonl"
     path.write_text("", encoding="utf-8")

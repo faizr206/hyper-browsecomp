@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from hyper_browsecomp.config import RunConfig
 from hyper_browsecomp.runner import (
     build_inspect_command,
+    finalize_unfinished_owl_traces,
     _hide_confidential_score_explanations,
     main,
     prepare_env,
@@ -122,6 +124,79 @@ def test_build_inspect_command_uses_native_provider_and_backend_args() -> None:
     assert "search_backend=internal" in command
     assert "fetch_backend=none" in command
     assert "model_provider=gemini" in command
+
+
+def test_build_inspect_command_selects_isolated_multimodal_owl_harness() -> None:
+    config = RunConfig(
+        provider="openrouter",
+        model_name="google/gemini-3.7-flash",
+        model_api_key_env="OPENROUTER_API_KEY",
+        model_base_url="https://openrouter.ai/api/v1",
+        harness="owl",
+        search_backend="none",
+        fetch_backend="none",
+    )
+    command = build_inspect_command(config)
+    assert "harness=owl" in command
+    assert "owl_model_name=google/gemini-3.7-flash" in command
+    assert "owl_api_key_env=OPENROUTER_API_KEY" in command
+    assert "owl_base_url=https://openrouter.ai/api/v1" in command
+    assert "owl_headless=true" in command
+    assert "owl_multimodal=true" in command
+    assert "owl_browser_round_limit=12" in command
+    assert "owl_task_timeout_seconds=900" in command
+    assert "owl_finalize_reserve_seconds=120" in command
+    assert "owl_max_external_tool_calls=50" in command
+    assert "owl_max_model_calls=180" in command
+    assert "owl_model_max_retries=1" in command
+    assert "owl_trace_dir=logs/owl/traces" in command
+    assert "max_steps=12" not in command
+    assert not any(arg.startswith("search_backend=") for arg in command)
+    assert not any(arg.startswith("fetch_backend=") for arg in command)
+
+
+def test_build_inspect_command_can_disable_control_server() -> None:
+    config = RunConfig(
+        provider="deepseek",
+        model_name="deepseek-chat",
+        inspect_ctl_server=False,
+    )
+    command = build_inspect_command(config)
+    assert command[command.index("--ctl-server") + 1] == "false"
+
+
+def test_finalize_unfinished_owl_traces_marks_new_running_sidecars(
+    tmp_path: Path,
+) -> None:
+    existing = tmp_path / "existing.json"
+    existing.write_text('{"status": "running"}', encoding="utf-8")
+    new_running = tmp_path / "new.json"
+    new_running.write_text(
+        '{"status": "running", "sample_id": "q1", "console": "q1.log"}',
+        encoding="utf-8",
+    )
+    completed = tmp_path / "completed.json"
+    completed.write_text('{"status": "completed"}', encoding="utf-8")
+    config = RunConfig(
+        provider="openrouter",
+        model_name="google/gemini-3.7-flash",
+        model_base_url="https://openrouter.ai/api/v1",
+        harness="owl",
+        owl_trace_dir=str(tmp_path),
+    )
+
+    finalized = finalize_unfinished_owl_traces(
+        config,
+        before={existing.resolve()},
+    )
+
+    assert finalized == [new_running.resolve()]
+    payload = json.loads(new_running.read_text(encoding="utf-8"))
+    assert payload["status"] == "error"
+    assert payload["termination_reason"] == "evaluation_process_ended"
+    assert payload["statistics"] == {}
+    assert json.loads(existing.read_text())["status"] == "running"
+    assert json.loads(completed.read_text())["status"] == "completed"
 
 
 def test_main_without_config_returns_usage_error(capsys) -> None:

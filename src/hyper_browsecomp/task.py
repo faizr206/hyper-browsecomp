@@ -12,12 +12,14 @@ from inspect_ai.tool import Tool, bash, python, web_search as inspect_web_search
 from inspect_ai.util import SandboxEnvironmentType
 
 from hyper_browsecomp.dataset import confidential_question, load_browsecomp_dataset
+from hyper_browsecomp.owl_harness import run_owl_harness
 from hyper_browsecomp.prompts import QUERY_TEMPLATE, WEB_ONLY_AGENT_PROMPT
 from hyper_browsecomp.scorer import browse_comp_scorer
 from hyper_browsecomp.tools import build_web_fetch_tool, build_web_search_tool
 
 
 ToolProfile = Literal["web", "web_code"]
+Harness = Literal["react", "owl"]
 SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
 FetchBackend = Literal["exa", "firecrawl", "none"]
 DEFAULT_DOCKER_SANDBOX: SandboxEnvironmentType = "docker"
@@ -250,9 +252,63 @@ def web_research_solver(
     return solve
 
 
+@solver
+def owl_research_solver(
+    *,
+    model_name: str,
+    api_key_env: str,
+    base_url: str,
+    headless: bool = True,
+    multimodal: bool = True,
+    browser_round_limit: int = 12,
+    task_timeout_seconds: int = 900,
+    finalize_reserve_seconds: int = 120,
+    max_external_tool_calls: int = 50,
+    max_model_calls: int = 180,
+    model_max_retries: int = 1,
+    max_tokens: int = 8192,
+    trace_dir: str = "logs/owl/traces",
+) -> Solver:
+    async def solve(state: TaskState, generate_fn: Generate) -> TaskState:
+        metadata = getattr(state, "metadata", {}) or {}
+        raw_image_urls = metadata.get("image_urls", [])
+        image_urls = [str(url) for url in raw_image_urls] if raw_image_urls else None
+        result = await run_owl_harness(
+            sample_question(state),
+            model_name=model_name,
+            api_key_env=api_key_env,
+            base_url=base_url,
+            headless=headless,
+            multimodal=multimodal,
+            browser_round_limit=browser_round_limit,
+            task_timeout_seconds=task_timeout_seconds,
+            finalize_reserve_seconds=finalize_reserve_seconds,
+            max_external_tool_calls=max_external_tool_calls,
+            max_model_calls=max_model_calls,
+            model_max_retries=model_max_retries,
+            max_tokens=max_tokens,
+            image_urls=image_urls,
+            sample_id=sample_id(state),
+            trace_dir=trace_dir,
+        )
+        state.output.completion = result["completion"]
+        state.metadata["owl_harness"] = {
+            "termination_reason": result.get("termination_reason"),
+            "capabilities": result.get("capabilities", {}),
+            "tool_usage": result.get("tool_usage", {}),
+            "statistics": result.get("statistics", {}),
+            "trace_files": result.get("trace_files", {}),
+            "media_events": result.get("media_events", []),
+        }
+        return state
+
+    return solve
+
+
 @task
 def hyper_browsecomp(
     data_path: str = "data/dev.jsonl",
+    harness: Harness = "react",
     tool_profile: ToolProfile = "web",
     search_backend: SearchBackend = "exa",
     fetch_backend: FetchBackend = "exa",
@@ -262,6 +318,19 @@ def hyper_browsecomp(
     fetch_timeout_seconds: int = 60,
     fetch_max_chars: int = 20000,
     max_steps: int = 12,
+    owl_model_name: str | None = None,
+    owl_api_key_env: str = "OPENROUTER_API_KEY",
+    owl_base_url: str = "https://openrouter.ai/api/v1",
+    owl_headless: bool = True,
+    owl_multimodal: bool = True,
+    owl_browser_round_limit: int = 12,
+    owl_task_timeout_seconds: int = 900,
+    owl_finalize_reserve_seconds: int = 120,
+    owl_max_external_tool_calls: int = 50,
+    owl_max_model_calls: int = 180,
+    owl_model_max_retries: int = 1,
+    owl_max_tokens: int = 8192,
+    owl_trace_dir: str = "logs/owl/traces",
     bash_timeout: int = 120,
     python_timeout: int = 120,
     sample_range: str | int | None = None,
@@ -272,7 +341,7 @@ def hyper_browsecomp(
     sandbox: SandboxEnvironmentType | None = None,
     no_sandbox: bool = True,
 ) -> Task:
-    if tool_profile == "web_code" and no_sandbox:
+    if harness == "react" and tool_profile == "web_code" and no_sandbox:
         raise ValueError("tool_profile=web_code requires no_sandbox=false.")
 
     if scorer_model is None:
@@ -294,9 +363,26 @@ def hyper_browsecomp(
             "Dataset slice contains no samples. Check sample_range, start_index, end_index, and num_samples."
         )
 
-    return Task(
-        dataset=dataset,
-        solver=web_research_solver(
+    if harness == "owl":
+        if not owl_model_name:
+            raise ValueError("harness=owl requires owl_model_name.")
+        active_solver = owl_research_solver(
+            model_name=owl_model_name,
+            api_key_env=owl_api_key_env,
+            base_url=owl_base_url,
+            headless=owl_headless,
+            multimodal=owl_multimodal,
+            browser_round_limit=owl_browser_round_limit,
+            task_timeout_seconds=owl_task_timeout_seconds,
+            finalize_reserve_seconds=owl_finalize_reserve_seconds,
+            max_external_tool_calls=owl_max_external_tool_calls,
+            max_model_calls=owl_max_model_calls,
+            model_max_retries=owl_model_max_retries,
+            max_tokens=owl_max_tokens,
+            trace_dir=owl_trace_dir,
+        )
+    else:
+        active_solver = web_research_solver(
             tool_profile=tool_profile,
             max_steps=max_steps,
             search_backend=search_backend,
@@ -308,7 +394,11 @@ def hyper_browsecomp(
             fetch_max_chars=fetch_max_chars,
             bash_timeout=bash_timeout,
             python_timeout=python_timeout,
-        ),
+        )
+
+    return Task(
+        dataset=dataset,
+        solver=active_solver,
         scorer=browse_comp_scorer(judge_model),
         sandbox=resolve_sandbox(sandbox, no_sandbox=no_sandbox),
     )
