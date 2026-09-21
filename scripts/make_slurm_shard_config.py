@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trace-dir", required=True)
     parser.add_argument("--task-timeout", type=int)
     parser.add_argument("--attempt-timeout", type=int)
+    parser.add_argument("--max-model-calls", type=int)
     parser.add_argument("--parallel", type=int)
     return parser.parse_args()
 
@@ -65,6 +66,8 @@ def main() -> int:
         payload["owl_task_timeout_seconds"] = args.task_timeout
     if args.attempt_timeout is not None:
         payload["inspect_attempt_timeout"] = args.attempt_timeout
+    if args.max_model_calls is not None:
+        payload["owl_max_model_calls"] = args.max_model_calls
     if args.parallel is not None:
         payload["inspect_max_samples_parallel"] = args.parallel
 

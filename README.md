@@ -277,8 +277,8 @@ default benchmark setting.
 
 For clusters with per-job wall-time limits, the repository includes a
 conservative SLURM array launcher for the 423 IDs retained by the no-internet
-filter. It runs shards of at most 25 IDs with two workers and an eight-hour
-hard limit per shard. See
+filter. It permits two simultaneous shards, each running two workers, with an
+eight-hour hard limit per shard. See
 [`slurm/README.md`](slurm/README.md) for installation, submission, output, and
 resume instructions.
 

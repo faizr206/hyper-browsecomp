@@ -2,13 +2,17 @@
 
 The supplied array job reads the 423 IDs in
 `logs/no-internet-result/retained_ids.txt` and splits them into seventeen
-independent shards of at most 25 samples. Only one shard runs at a time
-(`--array=0-16%1`), and each shard uses two sample workers. Therefore, at most
-two OWL agents share the cluster's public IP at any time.
+independent shards of at most 25 samples. Up to two shards run at a time
+(`--array=0-16%2`), and each shard uses two sample workers. Therefore, at most
+four OWL agents share the cluster's public IP at any time.
 
-With the default 30-minute OWL timeout and 31-minute Inspect attempt timeout,
-a 25-sample shard has 13 worker waves. Its timeout-based upper estimate is
-6 hours 43 minutes, and the SLURM allocation enforces an 8-hour hard limit.
+The checked-in launcher is pinned to `ws-l4-013`. Remove or override the
+`--nodelist` directive when running on another SLURM installation.
+
+With the default 40-minute OWL timeout, 41-minute Inspect attempt timeout, and
+250-model-call limit, a 25-sample shard has 13 worker waves. Its timeout-based
+upper estimate is 8 hours 53 minutes, and the SLURM allocation enforces a
+10-hour hard limit.
 
 ## One-time setup on the shared filesystem
 
@@ -75,22 +79,30 @@ Scheduler stdout and stderr are written in the submission directory as
 
 ## Throughput choices
 
-The default `%1` permits one shard at a time, for two total concurrent OWL
-samples. Do not raise the array concurrency if the cluster limit is two workers
-or if all nodes share one public IP. If a later capacity test confirms that
-four simultaneous samples are safe, two shards can be enabled with:
+The default `%2` permits two SLURM shards at a time. Each shard runs two OWL
+samples, giving four concurrent agents in total. This requires two allocations
+of 8 CPUs and 20 GiB each and doubles the traffic from the cluster's public IP.
+
+To return to the lower-risk two-agent configuration, submit with:
 
 ```bash
-sbatch --array=0-16%2 slurm/owl_retained_array.sbatch
+sbatch --array=0-16%1 slurm/owl_retained_array.sbatch
 ```
 
-This doubles simultaneous Chromium and model traffic. It is a separate
-capacity test; provider or IP throttling can make it slower rather than faster.
+Use `%1` if the provider or websites begin returning rate-limit, CAPTCHA, or
+access-denied responses.
 
 The base config and timeouts can be overridden at submission:
 
 ```bash
 sbatch --export=ALL,OWL_TASK_TIMEOUT_SECONDS=1200,INSPECT_ATTEMPT_TIMEOUT=1260 \
+  slurm/owl_retained_array.sbatch
+```
+
+The model-call guard can also be overridden:
+
+```bash
+sbatch --export=ALL,OWL_MAX_MODEL_CALLS=250 \
   slurm/owl_retained_array.sbatch
 ```
 
@@ -106,3 +118,22 @@ uv run bash run_eval.sh resume \
 Submit the resume command as a small separate batch job rather than running it
 on a login node. The runner retries only missing or errored samples from that
 shard.
+
+## Retry all errored samples
+
+After one or more source arrays finish, retry only samples whose OWL traces
+ended with `status: error`. The retry array preserves the retained-ID order,
+deduplicates failures across source jobs, and uses shards of at most 20 samples
+so 40-minute attempts remain within an eight-hour allocation.
+
+```bash
+sbatch \
+  --dependency=afterany:202169:CONTINUATION_JOB_ID \
+  --export=ALL,RETRY_SOURCE_JOB_IDS=202169:CONTINUATION_JOB_ID \
+  slurm/owl_failed_retry_array.sbatch
+```
+
+The retry job runs at most two shards with two workers each. Empty array
+elements exit successfully, so the fixed `0-21` range safely covers up to all
+423 retained IDs. Keep retry results separate from the original Pass@1 result;
+a merged score is a retry-assisted result.
