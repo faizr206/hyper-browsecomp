@@ -22,6 +22,7 @@ NATIVE_PROVIDERS = {
     "google",
     "grok",
     "mistral",
+    "minimax",
     "openrouter",
     "perplexity",
 }
@@ -64,6 +65,7 @@ class RunConfig(BaseModel):
     max_steps: int = 12
     bash_timeout: int = 120
     python_timeout: int = 120
+    sample_ids_file: str | None = None
     sample_range: str | None = None
     start_index: int | None = None
     end_index: int | None = None
@@ -74,8 +76,18 @@ class RunConfig(BaseModel):
     inspect_retry_on_error: int | None = 3
     inspect_continue_on_fail: bool = True
     inspect_no_fail_on_error: bool = True
+    auto_resume: bool = False
+    inspect_checkpoint: str | None = None
+    inspect_log_buffer: int | None = Field(default=None, ge=1)
     no_sandbox: bool = True
     log_dir: str = "logs"
+
+    @field_validator("sample_ids_file")
+    @classmethod
+    def validate_sample_ids_file(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("sample_ids_file must be a nonempty path.")
+        return value
 
     @field_validator("sample_range", mode="before")
     @classmethod
@@ -92,6 +104,14 @@ class RunConfig(BaseModel):
             raise ValueError("scorer_model_name requires scorer_provider unless scorer_model is set.")
         if self.tool_profile == "web_code" and self.no_sandbox:
             raise ValueError("tool_profile=web_code requires no_sandbox=false.")
+        if self.sample_ids_file is not None and any(
+            value is not None
+            for value in (self.sample_range, self.start_index, self.end_index, self.num_samples)
+        ):
+            raise ValueError(
+                "sample_ids_file cannot be combined with sample_range, start_index, "
+                "end_index, or num_samples."
+            )
         if self.sample_range is not None and any(
             value is not None for value in (self.start_index, self.end_index, self.num_samples)
         ):

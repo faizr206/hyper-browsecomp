@@ -31,6 +31,19 @@ def test_prepare_env_maps_generic_model_env(monkeypatch) -> None:
     assert env["HOME"].endswith(".inspect_home")
 
 
+def test_prepare_env_maps_minimax_key_and_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("CUSTOM_MINIMAX_TEST_KEY", "offline-minimax-key")
+    config = RunConfig(
+        provider="minimax",
+        model_name="MiniMax-M3",
+        model_api_key_env="CUSTOM_MINIMAX_TEST_KEY",
+        model_base_url="https://api.minimax.io/anthropic",
+    )
+    env = prepare_env(config)
+    assert env["MINIMAX_API_KEY"] == "offline-minimax-key"
+    assert env["MINIMAX_BASE_URL"] == "https://api.minimax.io/anthropic"
+
+
 def test_prepare_env_maps_scorer_from_configured_env(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "scorer-secret")
     config = RunConfig(
@@ -101,6 +114,38 @@ def test_build_inspect_command_passes_sample_range() -> None:
     command = build_inspect_command(config)
     assert "-T" in command
     assert "sample_range=1-2" in command
+
+
+def test_build_inspect_command_passes_minimax_selection_and_resume_options() -> None:
+    config = RunConfig(
+        provider="minimax",
+        model_name="MiniMax-M3",
+        model_args={"thinking": True},
+        sample_ids_file="configs/internal_full/retained_ids.txt",
+        search_backend="internal",
+        fetch_backend="none",
+        inspect_max_samples_parallel=5,
+        inspect_checkpoint="turn:1",
+        inspect_log_buffer=1,
+        auto_resume=True,
+    )
+    command = build_inspect_command(config)
+    assert command[command.index("--model") + 1] == "minimax/MiniMax-M3"
+    assert "thinking=true" in command
+    assert "strict_tools=false" not in command
+    assert "sample_ids_file=configs/internal_full/retained_ids.txt" in command
+    assert "search_backend=internal" in command
+    assert "fetch_backend=none" in command
+    assert "model_provider=minimax" in command
+    assert command[command.index("--max-samples") + 1] == "5"
+    assert command[command.index("--checkpoint") + 1] == "turn:1"
+    assert command[command.index("--log-buffer") + 1] == "1"
+
+
+def test_build_inspect_command_omits_checkpoint_options_by_default() -> None:
+    command = build_inspect_command(RunConfig(provider="minimax", model_name="MiniMax-M3"))
+    assert "--checkpoint" not in command
+    assert "--log-buffer" not in command
 
 
 def test_build_inspect_command_can_limit_sample_ids() -> None:

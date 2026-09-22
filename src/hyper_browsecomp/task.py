@@ -11,7 +11,8 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import Tool, bash, python, web_search as inspect_web_search
 from inspect_ai.util import SandboxEnvironmentType
 
-from hyper_browsecomp.dataset import confidential_question, load_browsecomp_dataset
+from hyper_browsecomp import minimax  # noqa: F401 - register direct MiniMax model API
+from hyper_browsecomp.dataset import confidential_question, load_browsecomp_dataset, select_samples_by_ids
 from hyper_browsecomp.prompts import QUERY_TEMPLATE, WEB_ONLY_AGENT_PROMPT
 from hyper_browsecomp.scorer import browse_comp_scorer
 from hyper_browsecomp.tools import build_web_fetch_tool, build_web_search_tool
@@ -21,7 +22,7 @@ ToolProfile = Literal["web", "web_code"]
 SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
 FetchBackend = Literal["exa", "firecrawl", "none"]
 DEFAULT_DOCKER_SANDBOX: SandboxEnvironmentType = "docker"
-INTERNAL_SEARCH_PROVIDERS = {"openai", "anthropic", "gemini", "grok", "mistral", "perplexity"}
+INTERNAL_SEARCH_PROVIDERS = {"openai", "anthropic", "gemini", "grok", "mistral", "minimax", "perplexity"}
 FINALIZE_AFTER_MAX_STEPS_PROMPT = """\
 You have reached the maximum research step limit. Do not call any more tools.
 Using only the information already gathered in this conversation, provide your best final answer now.
@@ -161,7 +162,8 @@ def web_tools(
                 "search_backend=internal requires provider to be one of: "
                 f"{', '.join(sorted(INTERNAL_SEARCH_PROVIDERS))}."
             )
-        tools.append(inspect_web_search(providers=model_provider))
+        search_provider = "anthropic" if model_provider == "minimax" else model_provider
+        tools.append(inspect_web_search(providers=search_provider))
     elif search_backend != "none":
         tools.append(
             build_web_search_tool(
@@ -202,12 +204,13 @@ def web_research_solver(
 ) -> Solver:
     async def solve(state: TaskState, generate_fn: Generate) -> TaskState:
         active_model = inspect_model.get_model()
-        step_count = 0
         reached_limit = False
 
         async def limit_steps(_agent_state: AgentState) -> bool:
-            nonlocal step_count, reached_limit
-            step_count += 1
+            nonlocal reached_limit
+            # Restored checkpoint messages include previous turns, whereas a
+            # closure counter would reset after restarting the process.
+            step_count = sum(message.role == "assistant" for message in _agent_state.messages)
             if step_count >= max_steps:
                 reached_limit = True
                 return False
@@ -253,6 +256,7 @@ def web_research_solver(
 @task
 def hyper_browsecomp(
     data_path: str = "data/dev.jsonl",
+    sample_ids_file: str | None = None,
     tool_profile: ToolProfile = "web",
     search_backend: SearchBackend = "exa",
     fetch_backend: FetchBackend = "exa",
@@ -283,7 +287,7 @@ def hyper_browsecomp(
         judge_model = scorer_model
 
     dataset = slice_dataset(
-        load_browsecomp_dataset(data_path),
+        select_samples_by_ids(load_browsecomp_dataset(data_path), sample_ids_file),
         sample_range=sample_range,
         start_index=start_index,
         end_index=end_index,
