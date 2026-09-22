@@ -17,6 +17,7 @@ from hyper_browsecomp.dataset import (
     confidential_answer_replacements,
     confidential_log_replacements,
     load_browsecomp_dataset,
+    select_samples_by_ids,
 )
 from hyper_browsecomp.task import slice_dataset
 from hyper_browsecomp.utils import sanitize_filename
@@ -120,6 +121,10 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
         command.extend(["-M", f"{key}={json.dumps(value, separators=(',', ':'))}"])
 
     command.extend(["--max-samples", str(config.inspect_max_samples_parallel)])
+    if config.inspect_log_buffer is not None:
+        command.extend(["--log-buffer", str(config.inspect_log_buffer)])
+    if config.inspect_checkpoint is not None:
+        command.extend(["--checkpoint", config.inspect_checkpoint])
 
     if config.inspect_model_max_retries is not None:
         command.extend(["--max-retries", str(config.inspect_model_max_retries)])
@@ -152,6 +157,8 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
         "no_sandbox": str(config.no_sandbox).lower(),
     }
 
+    if config.sample_ids_file is not None:
+        task_args["sample_ids_file"] = config.sample_ids_file
     if config.sample_range is not None:
         task_args["sample_range"] = config.sample_range
     if config.start_index is not None:
@@ -304,7 +311,7 @@ def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunCon
     log = read_eval_log(log_path, header_only=True)
     task_args = getattr(log.eval, "task_args", {}) or {}
     updates: dict[str, object] = {}
-    for key in ("data_path", "sample_range"):
+    for key in ("data_path", "sample_range", "sample_ids_file"):
         if key in task_args:
             updates[key] = task_args[key]
     for key in ("start_index", "end_index", "num_samples"):
@@ -326,7 +333,7 @@ def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunCon
 
 def selected_sample_ids(config: RunConfig) -> list[str]:
     samples = slice_dataset(
-        load_browsecomp_dataset(config.data_path),
+        select_samples_by_ids(load_browsecomp_dataset(config.data_path), config.sample_ids_file),
         sample_range=config.sample_range,
         start_index=config.start_index,
         end_index=config.end_index,
@@ -370,6 +377,10 @@ def unfinished_sample_ids(config: RunConfig, log_path: str | Path) -> list[str]:
 
 
 def run_with_config(config: RunConfig) -> int:
+    if config.auto_resume:
+        from hyper_browsecomp.durable_run import run_durable
+
+        return run_durable(config)
     env = prepare_env(config)
     log_dir = Path(env["INSPECT_LOG_DIR"])
     before = _collect_eval_logs(log_dir)

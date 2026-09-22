@@ -1,0 +1,24 @@
+# MiniMax's own API and native server-side web search; no OpenRouter or Exa.
+provider: minimax
+model_name: MiniMax-M3
+model_args:
+  thinking: true
+model_api_key_env: MINIMAX_API_KEY
+model_base_url: https://api.minimax.io/anthropic
+data_path: afaji/HyperBrowseComp
+sample_ids_file: configs/internal_full/retained_ids.txt
+tool_profile: web
+search_backend: internal
+fetch_backend: none
+max_steps: 25
+inspect_max_samples_parallel: 5
+inspect_model_max_retries: 2
+inspect_attempt_timeout: 360
+inspect_retry_on_error: 3
+inspect_no_fail_on_error: true
+inspect_continue_on_fail: true
+no_sandbox: true
+log_dir: logs/minimax_m3_internal
+auto_resume: true
+inspect_checkpoint: turn:1
+inspect_log_buffer: 1
