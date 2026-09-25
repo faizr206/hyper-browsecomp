@@ -117,6 +117,56 @@ Each run writes `.eval` logs under `logs/` and then renames the newest run log t
 {data_name}_{model_name}_{timestamp}_{id}.eval
 ```
 
+## Rescore existing logs
+
+Rescore the canonical `logs/owl_final` logs with `openai/gpt-oss-20b` through
+OpenRouter:
+
+```bash
+.venv/bin/python scripts/rescore_eval_logs.py
+```
+
+The script reads `OPENROUTER_API_KEY` and `HYPERBROWSECOMP_KEY` from `.env`,
+reloads the encrypted dataset so redacted log targets are graded against their
+real answers, and writes mirrored logs beneath
+`logs/rescored/gpt-oss-20b/`. Source logs are never changed. Each output keeps
+the original `browse_comp_scorer` score and appends a `browse_comp_rescorer`
+score, making per-sample comparisons possible later.
+
+The run is restart-safe: completed outputs are skipped, while failed logs can
+be retried. Use `--force` to replace completed outputs, `--concurrency N` to
+control parallel grader requests, or pass another file/directory explicitly:
+
+```bash
+.venv/bin/python scripts/rescore_valid_results.py
+.venv/bin/python scripts/rescore_eval_logs.py logs --dry-run
+```
+
+`rescore_valid_results.py` recursively processes `logs/valid results` and writes
+its mirrored output under `logs/rescored/gpt-oss-20b/valid results/`.
+
+To use another OpenRouter judge, pass its normal OpenRouter slug. Output is
+automatically separated by model name:
+
+```bash
+.venv/bin/python scripts/rescore_valid_results.py \
+  --model google/gemini-3.7-flash \
+  --concurrency 20
+
+.venv/bin/python scripts/rescore_valid_results.py \
+  --model z-ai/glm-4.7 \
+  --concurrency 20
+
+.venv/bin/python scripts/rescore_valid_results.py \
+  --model moonshotai/kimi-k2-thinking \
+  --concurrency 20
+```
+
+These write to `logs/rescored/gemini-3.7-flash/valid results/` and
+`logs/rescored/glm-4.7/valid results/`, or
+`logs/rescored/kimi-k2-thinking/valid results/`, leaving the GPT-OSS-20B
+outputs untouched.
+
 If a run stops in the middle, resume it by passing the original config and the
 partial `.eval` log:
 

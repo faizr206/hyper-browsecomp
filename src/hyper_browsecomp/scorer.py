@@ -10,6 +10,7 @@ from inspect_ai.scorer import (
     Metric,
     SampleScore,
     Score,
+    Scorer,
     Target,
     accuracy,
     metric,
@@ -20,7 +21,11 @@ from inspect_ai.scorer import (
 from inspect_ai.solver import TaskState
 
 from hyper_browsecomp.prompts import GRADER_TEMPLATE
-from hyper_browsecomp.dataset import confidential_answers, confidential_question
+from hyper_browsecomp.dataset import (
+    confidential_answers,
+    confidential_question,
+    load_browsecomp_dataset,
+)
 from hyper_browsecomp.utils import clear_substring, ensure_list, normalize_text
 
 
@@ -179,8 +184,12 @@ def _is_confidential_sample(state: TaskState) -> bool:
 
 
 @scorer(metrics=[browse_comp_accuracy(), calibration_error()])
-def browse_comp_scorer(scorer_model: inspect_model.Model):
-    judge = scorer_model
+def browse_comp_scorer(scorer_model: str | inspect_model.Model) -> Scorer:
+    judge = (
+        inspect_model.get_model(scorer_model)
+        if isinstance(scorer_model, str)
+        else scorer_model
+    )
 
     async def score(state: TaskState, target: Target) -> Score:
         completion = getattr(getattr(state, "output", None), "completion", "") or ""
@@ -211,5 +220,27 @@ def browse_comp_scorer(scorer_model: inspect_model.Model):
             answer=answer_match.group(1).strip() if answer_match else extract_final_answer(completion),
             explanation=explanation,
         )
+
+    return score
+
+
+@scorer(metrics=[browse_comp_accuracy(), calibration_error()])
+def browse_comp_rescorer(
+    scorer_model: str | inspect_model.Model,
+    confidential_data_path: str | None = None,
+) -> Scorer:
+    """Re-run the BrowseComp judge only for samples that already have a score."""
+    if confidential_data_path:
+        # Published logs redact confidential questions and targets. Loading the
+        # encrypted dataset repopulates the in-memory lookup used by the scorer.
+        load_browsecomp_dataset(confidential_data_path)
+    rescore = browse_comp_scorer(scorer_model)
+
+    async def score(state: TaskState, target: Target) -> Score | None:
+        # Failed/incomplete samples have no original score. Leaving them unscored
+        # keeps the rescored metric denominator identical to the original one.
+        if not state.scores:
+            return None
+        return await rescore(state, target)
 
     return score
