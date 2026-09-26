@@ -1,15 +1,29 @@
-# hyper-browsecomp
+# HyperBrowseComp evaluation harness
 
-`hyper-browsecomp` is a compact Inspect AI harness for BrowseComp-style web research evals. It runs local JSONL datasets and the encrypted `afaji/HyperBrowseComp` Hugging Face dataset, gives the model web search and fetch tools, and scores answers with a BrowseComp-style judge.
+`hyper-browsecomp` is an [Inspect AI](https://inspect.aisi.org.uk/) harness for
+BrowseComp-style web research evaluations. It supports local JSONL fixtures and
+the encrypted `afaji/HyperBrowseComp` Hugging Face dataset, with two execution
+paths:
 
-## Install
+- Inspect ReAct agents using configurable search and fetch backends
+- an isolated OWL/CAMEL Workforce with browser and multimodal tools
+
+Both paths use the same dataset loader, BrowseComp-style judge, resumable runs,
+and `.eval` output format.
+
+## Quick start
 
 ```bash
 uv sync --extra dev
+cp .env.example .env
+uv run pytest -q
 ```
 
 This creates a local `.venv` and installs the project with its development
-dependencies from `pyproject.toml` and `uv.lock`.
+dependencies from `pyproject.toml` and `uv.lock`. Add only the credentials
+required by your selected config to `.env`.
+
+### Optional OWL runtime
 
 The OWL harness has an isolated runtime because OWL/CAMEL and Inspect require
 incompatible Pydantic versions. Install its locked dependencies and Chromium
@@ -22,12 +36,6 @@ uv run --project owl_runtime playwright install chromium
 
 Local video decoding also needs FFmpeg on `PATH`. YouTube downloads use the
 locked `yt-dlp-ejs` dependency and enable Node.js when `node` is on `PATH`.
-
-To verify the installation without making external API calls, run:
-
-```bash
-uv run pytest -q
-```
 
 The test suite covers configuration loading, dataset handling, runner command
 construction, scoring-task setup, web tools, and the isolated OWL harness.
@@ -46,25 +54,13 @@ construction, scoring-task setup, web tools, and the isolated OWL harness.
 Generated logs, traces, temporary files, local environments, and downloaded
 datasets are intentionally excluded from version control; see `.gitignore`.
 
-## Environment
+## Credentials and datasets
 
-Store API key values in `.env`:
+Start from `.env.example` and fill in only the keys used by the selected model,
+scorer, and web backends. The file is ignored by Git.
 
-```bash
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-GOOGLE_API_KEY=...
-XAI_API_KEY=...
-MISTRAL_API_KEY=...
-MINIMAX_API_KEY=...
-PERPLEXITY_API_KEY=...
-DEEPSEEK_API_KEY=...
-OPENROUTER_API_KEY=...
-DASHSCOPE_API_KEY=...
-```
-
-Each YAML config chooses which environment variable to read for the main model
-and scorer:
+Each YAML config names the environment variables used by the main model and
+scorer:
 
 ```yaml
 provider: openai
@@ -83,9 +79,9 @@ Native Inspect providers are used for `openai`, `anthropic`, `gemini`, `grok`,
 Inspect's `google/<model>` provider path. Other provider names, such as `qwen`,
 continue to use Inspect's OpenAI-compatible `openai-api/<provider>/<model>` path.
 
-`minimax` uses this harness's direct MiniMax adapter for `MiniMax-M3`. It supports
-MiniMax native search and direct Exa in separate resumable 423-question configs.
-See [MiniMax M3 setup and connectivity checks](docs/minimax_m3.md).
+`minimax` uses the repository's direct MiniMax adapter for `MiniMax-M3`. It
+supports native search and direct Exa in separate resumable 423-question
+configs under `configs/internal_full/` and `configs/exa_full/`.
 
 Web backends:
 
@@ -98,8 +94,8 @@ Only set the backend key for backends selected by the YAML config. For example,
 `search_backend: exa` and `fetch_backend: exa` need `EXA_API_KEY`, while
 `fetch_backend: none` does not need `FIRECRAWL_API_KEY`.
 
-HyperBrowseComp on Hugging Face is also supported. Put the hex-encoded
-AES-256-GCM master key in `.env`:
+For the full HyperBrowseComp dataset, put the hex-encoded AES-256-GCM master key
+in `.env`:
 
 ```bash
 HYPERBROWSECOMP_KEY=...
@@ -121,69 +117,57 @@ example, `model_api_key_env: OPENAI_API_KEY` with `provider: openai` sets
 `OPENAI_API_KEY`; `provider: gemini` writes `GOOGLE_API_KEY` and
 `GOOGLE_BASE_URL`; `provider: grok` writes `XAI_API_KEY` and `XAI_BASE_URL`.
 
-## Run
+## Running evaluations
 
-Use the single shell entrypoint with any YAML config:
+All evaluations use the same entrypoint:
 
 ```bash
+uv run bash run_eval.sh path/to/config.yaml
+```
+
+### ReAct examples
+
+```bash
+# One-question development fixtures
 uv run bash run_eval.sh configs/exa_dev/dev_openai.yaml
 uv run bash run_eval.sh configs/internal_search_dev/dev_openai.yaml
+
+# Full encrypted dataset
 uv run bash run_eval.sh configs/exa_full/openai.yaml
+
+# Web tools plus bash and Python
 uv run bash run_eval.sh configs/web_code.yaml
-uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash.yaml
-uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash_video.yaml
-uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash_media.yaml
-uv run bash run_eval.sh configs/owl_full/openrouter_gemini_flash.yaml
-uv run bash run_eval.sh configs/owl_dev/openrouter_glm_5_3_flash.yaml
-uv run bash run_eval.sh configs/owl_full/openrouter_glm_5_3_flash_8.yaml
-uv run bash run_eval.sh configs/owl_full/openrouter_glm_5_3_flash.yaml
 ```
 
-The OWL smoke config uses OpenRouter's multimodal
-`google/gemini-3.7-flash` on a one-question image task. It runs an OWL
-Workforce inside the Inspect evaluation shell, so the existing dataset,
-scorer, `.eval` log, redaction, and resume behavior are retained while the
-normal Inspect ReAct agent is bypassed.
+Development configs use `data/dev.jsonl`. Full configs load
+`afaji/HyperBrowseComp` and require `HYPERBROWSECOMP_KEY`.
 
-The equivalent GLM configs run the same OWL harness through OpenRouter with
-`z-ai/glm-5.3-flash`. Start with the dev smoke config, then the eight-sample
-validation config before launching the full dataset. GLM uses OWL's local
-download-and-frame path for YouTube because the native YouTube shortcut is
-specific to Gemini through Google AI Studio.
+### OWL examples
 
-On the MBZUAI SLURM cluster, submit the eight-problem validation with
-`sbatch slurm/owl_glm_5_3_flash_8.sbatch`. The full-run command for two
-exclusive `ws-ia` nodes with eight OWL workers each is documented in
-`slurm/README.md`.
+| Purpose | Config |
+| --- | --- |
+| Gemini image smoke test | `configs/owl_dev/openrouter_gemini_flash.yaml` |
+| Gemini video smoke test | `configs/owl_dev/openrouter_gemini_flash_video.yaml` |
+| Gemini five-media validation | `configs/owl_dev/openrouter_gemini_flash_media.yaml` |
+| Gemini full benchmark | `configs/owl_full/openrouter_gemini_flash.yaml` |
 
-The video smoke config searches for the canonical YouTube URL for `Me at the
-zoo`, requires OWL to call `ask_question_about_video`, and asks for a visual
-detail from the video. It deliberately supplies no URL so both live
-search and actual video processing are exercised; a download/decoding failure
-must be reported rather than guessed.
+Run the smoke test, then the model's validation config, before starting a full
+benchmark. Gemini can use OpenRouter's native YouTube route through Google AI
+Studio; GLM uses the local download-and-frame route.
 
-The media smoke config runs five end-to-end OWL tasks: YouTube, Bilibili,
-image, rendered PDF, and audio. To test the same tools directly, without the
-planner or judge, run `uv run python owl_runtime/smoke.py`. This additionally
-tests both native and downloaded YouTube input. Use `--cases pdf,audio` for a
-subset. Checks load `.env`, use no cookies/proxy unless
-`--use-configured-cookies` is passed, and save reports in
-`logs/owl/media-smoke/`. They require actual media input plus an expected
-answer; these easy integration checks are not benchmark accuracy results.
+The five-media validation exercises YouTube, Bilibili, image, rendered-PDF,
+and audio tools. To test those tools directly without the planner or judge:
 
-The dev configs all run the single-question `data/dev.jsonl` dataset:
-
-```text
-configs/exa_dev/*.yaml
-configs/internal_search_dev/*.yaml
+```bash
+uv run python owl_runtime/smoke.py
+uv run python owl_runtime/smoke.py --cases pdf,audio
 ```
 
-The full Exa configs run the encrypted Hugging Face dataset and require
-`HYPERBROWSECOMP_KEY`:
+Direct smoke checks save reports under `logs/owl/media-smoke/`. They validate
+media access and expected answers, not benchmark accuracy.
 
-```text
-configs/exa_full/*.yaml      afaji/HyperBrowseComp
-```
+
+### Outputs and resuming
 
 Each run writes `.eval` logs under `logs/` and then renames the newest run log to:
 
@@ -202,7 +186,7 @@ The resume command reads the original run's sample selection from the log, finds
 samples that are missing from the log or ended with an error, and starts a new
 run with `--sample-id` limited to those unfinished samples.
 
-## Config
+## Configuration
 
 Configs are flat YAML files. Example:
 
@@ -232,6 +216,8 @@ inspect_continue_on_fail: true
 no_sandbox: true
 ```
 
+### Core settings
+
 Key fields:
 
 - `model` or `provider` + `model_name`
@@ -251,10 +237,18 @@ Key fields:
   `inspect_ctl_server`
 - `no_sandbox`
 
+### Sample selection
+
 `sample_ids_path` passes the listed IDs to Inspect's `--sample-id` selector;
 blank lines and comment lines beginning with `#` are ignored. `sample_ids_file`
 filters the loaded task dataset in the file's exact order and rejects blank or
 duplicate lines. Use only one sample-selection mechanism in a config.
+
+`sample_range` uses 1-based inclusive positions, so `"1-2"` selects the first
+two samples. The older `start_index`, `end_index`, and `num_samples` fields use
+Python slicing semantics.
+
+### OWL settings
 
 OWL-specific fields are `owl_model_name`, `owl_api_key_env`, `owl_base_url`,
 `owl_headless`, `owl_multimodal`, `owl_browser_round_limit`,
@@ -279,6 +273,8 @@ For lower-throughput models, `owl_timeout_scale` multiplies OWL's nested agent,
 browser, and media-tool timeouts without changing the separate task deadline.
 The GLM full configs use `3.5`, based on 140 versus 40 tokens per second, and
 scale the task deadline and finalization reserve by the same ratio.
+
+### Traces and reports
 
 OWL traces are created as soon as each sample starts. Tail the newest `.log`
 under `logs/owl/traces/` to watch model calls, tool calls, worker responses, and
@@ -316,7 +312,7 @@ The report contains a five-sample summary, questions, reference and model
 answers, judge explanations, model/tool/token statistics, media evidence, a
 compact workforce timeline, and links back to every raw trace.
 
-### OWL parallelism
+### OWL parallelism and SLURM
 
 `inspect_max_samples_parallel` controls sample-level concurrency. Every sample
 runs in its own OWL subprocess with its own temporary directory, browser,
@@ -336,24 +332,13 @@ and an eight-hour limit. See
 [`slurm/README.md`](slurm/README.md) for installation, submission, output, and
 resume instructions.
 
-`sample_range` is the easiest way to run a subset. It uses 1-based inclusive sample
-numbers, so `sample_range: "1-2"` runs dataset samples 1 and 2. The older
-`start_index`, `end_index`, and `num_samples` fields are still available, but they
-use Python slicing semantics.
-
 By default the runner caps model API retries, retries sample errors 3 times,
 records failed samples without failing the whole run, and continues after failed
 samples. One bad sample will not stop the whole evaluation.
 
-Removed from the old repo:
+## Harness and tool behavior
 
-- OpenRouter-specific modes and adapters
-- Browser/PDF/OCR/video tools from the original Inspect ReAct path (the
-  isolated OWL harness now supplies its own browser and multimodal tools)
-- dataset conversion scripts
-- multiple wrapper scripts
-
-## Tool behavior
+### OWL browser and media
 
 With `harness: owl`, the solver launches the isolated OWL/CAMEL Workforce and
 does not construct the Inspect ReAct agent or its Exa tools. The OWL web worker
@@ -422,8 +407,11 @@ public audio file (or reads a local one) and sends base64 `input_audio` to the
 same primary model; that endpoint must support audio input. No auxiliary
 Whisper/Gemini key is used. PDF/audio downloads have a 32 MiB limit.
 
+### ReAct tools
+
 - `search_backend: internal` uses Inspect's standard provider-native web search
-  for `openai`, `anthropic`, `gemini`, `grok`, `mistral`, and `perplexity`
+  for `openai`, `anthropic`, `gemini`, `grok`, `minimax`, `mistral`, and
+  `perplexity`
 - `search_backend: none` disables search
 - `fetch_backend: none` disables page fetching
 - `web` exposes the configured web tools
