@@ -25,6 +25,54 @@ HYPERBROWSECOMP_REDACTED_ANSWER = "[REDACTED_HYPERBROWSECOMP_ANSWER]"
 _HYPERBROWSECOMP_CONFIDENTIAL: dict[str, dict[str, Any]] = {}
 
 
+def parse_sample_range(sample_range: str | int) -> tuple[int, int]:
+    parts = str(sample_range).split("-", 1)
+    try:
+        start_sample = int(parts[0].strip())
+        end_sample = int(parts[1].strip()) if len(parts) == 2 else start_sample
+    except ValueError as exc:
+        raise ValueError(
+            "sample_range must be a 1-based sample number or range like '1-2'."
+        ) from exc
+
+    if start_sample < 1 or end_sample < 1:
+        raise ValueError("sample_range must use 1-based sample numbers greater than 0.")
+    if end_sample < start_sample:
+        raise ValueError("sample_range end must be >= start.")
+
+    return start_sample - 1, end_sample
+
+
+def slice_dataset(
+    dataset: list,
+    *,
+    sample_range: str | int | None = None,
+    start_index: int | None = None,
+    end_index: int | None = None,
+    num_samples: int | None = None,
+) -> list:
+    if sample_range is not None:
+        if start_index is not None or end_index is not None or num_samples is not None:
+            raise ValueError(
+                "sample_range cannot be combined with start_index, end_index, or num_samples."
+            )
+        start_index, end_index = parse_sample_range(sample_range)
+
+    if start_index is not None and start_index < 0:
+        raise ValueError("start_index must be >= 0.")
+    if end_index is not None and end_index < 0:
+        raise ValueError("end_index must be >= 0.")
+    if num_samples is not None and num_samples < 0:
+        raise ValueError("num_samples must be >= 0.")
+    if start_index is not None and end_index is not None and end_index < start_index:
+        raise ValueError("end_index must be >= start_index.")
+
+    selected = dataset[start_index:end_index]
+    if num_samples is not None:
+        selected = selected[:num_samples]
+    return selected
+
+
 class BrowseCompRecord(BaseModel):
     id: str
     question: str
@@ -95,6 +143,47 @@ def confidential_answer_replacements() -> list[tuple[str, str]]:
                     (answer, f"{HYPERBROWSECOMP_REDACTED_ANSWER}:{sample_id}")
                 )
     return sorted(replacements, key=lambda item: len(item[0]), reverse=True)
+
+
+def load_sample_ids(path: str | Path) -> list[str]:
+    """Read one unique sample ID per line, resolving paths from the project root."""
+    ids_path = Path(path)
+    if not ids_path.is_absolute():
+        ids_path = PROJECT_ROOT / ids_path
+    sample_ids: list[str] = []
+    seen: set[str] = set()
+    for line_number, line in enumerate(ids_path.read_text(encoding="utf-8").splitlines(), start=1):
+        sample_id = line.strip()
+        if not sample_id:
+            raise ValueError(f"Empty sample ID in {ids_path}:{line_number}.")
+        if sample_id in seen:
+            raise ValueError(f"Duplicate sample ID in {ids_path}:{line_number}: {sample_id}")
+        seen.add(sample_id)
+        sample_ids.append(sample_id)
+    if not sample_ids:
+        raise ValueError(f"Sample ID file contains no IDs: {ids_path}")
+    return sample_ids
+
+
+def select_samples_by_ids(
+    samples: list[Sample], sample_ids_file: str | Path | None
+) -> list[Sample]:
+    """Select the exact requested IDs in file order without exposing sample content."""
+    if sample_ids_file is None:
+        return samples
+    sample_ids = load_sample_ids(sample_ids_file)
+    samples_by_id: dict[str, Sample] = {}
+    for sample in samples:
+        if sample.id is None:
+            raise ValueError("Sample ID selection requires every dataset sample to have an ID.")
+        sample_id = str(sample.id)
+        if sample_id in samples_by_id:
+            raise ValueError(f"Dataset contains duplicate sample ID: {sample_id}")
+        samples_by_id[sample_id] = sample
+    missing = [sample_id for sample_id in sample_ids if sample_id not in samples_by_id]
+    if missing:
+        raise ValueError(f"Sample IDs not found in dataset: {', '.join(missing)}")
+    return [samples_by_id[sample_id] for sample_id in sample_ids]
 
 
 def load_browsecomp_jsonl(path: str | Path) -> list[Sample]:

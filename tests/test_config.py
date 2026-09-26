@@ -15,6 +15,11 @@ def test_config_resolves_native_model() -> None:
     assert config.resolved_model() == "anthropic/claude-sonnet-4-0"
 
 
+def test_config_resolves_minimax_direct_model() -> None:
+    config = RunConfig(provider="minimax", model_name="MiniMax-M3")
+    assert config.resolved_model() == "minimax/MiniMax-M3"
+
+
 def test_config_resolves_gemini_alias_to_google_provider() -> None:
     config = RunConfig(provider="gemini", model_name="gemini-2.5-pro")
     assert config.resolved_model() == "google/gemini-2.5-pro"
@@ -181,9 +186,47 @@ def test_sample_ids_path_rejects_other_selection_options() -> None:
         )
 
 
+def test_sample_id_files_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="sample_ids_path cannot be combined"):
+        RunConfig(
+            model="mockllm/model",
+            sample_ids_path="retained.txt",
+            sample_ids_file="configs/retained_ids.txt",
+        )
+
+
 def test_numeric_sample_range_is_normalized() -> None:
     config = RunConfig(provider="deepseek", model_name="deepseek-chat", sample_range=1)
     assert config.sample_range == "1"
+
+
+def test_config_accepts_sample_ids_file() -> None:
+    config = RunConfig(model="mockllm/model", sample_ids_file="configs/retained_ids.txt")
+    assert config.sample_ids_file == "configs/retained_ids.txt"
+
+
+@pytest.mark.parametrize(
+    "slice_option",
+    [
+        {"sample_range": "1-2"},
+        {"start_index": 0},
+        {"end_index": 423},
+        {"num_samples": 423},
+    ],
+)
+def test_sample_ids_file_rejects_slice_options(slice_option: dict) -> None:
+    with pytest.raises(ValueError, match="sample_ids_file cannot be combined"):
+        RunConfig(
+            model="mockllm/model",
+            sample_ids_file="configs/retained_ids.txt",
+            **slice_option,
+        )
+
+
+@pytest.mark.parametrize("path", ["", "  "])
+def test_sample_ids_file_rejects_blank_path(path: str) -> None:
+    with pytest.raises(ValueError, match="sample_ids_file must be a nonempty path"):
+        RunConfig(model="mockllm/model", sample_ids_file=path)
 
 
 def test_retry_and_continue_defaults_are_resilient() -> None:
@@ -193,6 +236,24 @@ def test_retry_and_continue_defaults_are_resilient() -> None:
     assert config.inspect_retry_on_error == 3
     assert config.inspect_no_fail_on_error is True
     assert config.inspect_continue_on_fail is True
+
+
+def test_checkpoint_options_and_auto_resume_are_opt_in() -> None:
+    config = RunConfig(model="mockllm/model")
+    assert config.auto_resume is False
+    assert config.inspect_checkpoint is None
+    assert config.inspect_log_buffer is None
+    resume_config = RunConfig(
+        model="mockllm/model", auto_resume=True, inspect_checkpoint="turn:1", inspect_log_buffer=1
+    )
+    assert resume_config.auto_resume is True
+    assert resume_config.inspect_checkpoint == "turn:1"
+    assert resume_config.inspect_log_buffer == 1
+
+
+def test_log_buffer_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="greater than or equal to 1"):
+        RunConfig(model="mockllm/model", inspect_log_buffer=0)
 
 
 def test_legacy_keys_are_rejected(tmp_path: Path) -> None:
@@ -326,10 +387,31 @@ def test_exa_full_configs_use_hf_dataset(config_path: Path) -> None:
     assert config.search_backend == "exa"
     assert config.fetch_backend == "exa"
     assert config.max_steps == 25
-    assert config.inspect_max_samples_parallel == 50
+    assert config.inspect_max_samples_parallel == (5 if config.provider == "minimax" else 50)
     assert config.inspect_model_max_retries == 2
     assert config.inspect_attempt_timeout == 360
     assert config.inspect_retry_on_error == 3
     assert config.inspect_no_fail_on_error is True
     assert config.inspect_continue_on_fail is True
     assert config.no_sandbox is True
+
+
+@pytest.mark.parametrize("folder,backend", [("internal_full", "internal"), ("exa_full", "exa")])
+def test_minimax_configs_use_direct_api_and_independent_resumable_runs(folder, backend):
+    root = Path(__file__).resolve().parents[1]
+    config = load_run_config(root / "configs" / folder / "minimax_m3.yaml")
+    assert config.resolved_model() == "minimax/MiniMax-M3"
+    assert config.model_api_key_env == "MINIMAX_API_KEY"
+    assert config.model_base_url == "https://api.minimax.io/anthropic"
+    assert config.model_args == {"thinking": True}
+    assert config.search_backend == backend
+    assert config.fetch_backend == ("none" if backend == "internal" else "exa")
+    assert config.max_steps == 25
+    assert config.inspect_max_samples_parallel == 5
+    assert config.auto_resume and config.inspect_checkpoint == "turn:1"
+    assert config.inspect_log_buffer == 1
+    ids = (root / config.sample_ids_file).read_text().splitlines()
+    assert len(ids) == len(set(ids)) == 423
+    other_folder = "exa_full" if folder == "internal_full" else "internal_full"
+    other = load_run_config(root / "configs" / other_folder / "minimax_m3.yaml")
+    assert config.log_dir != other.log_dir

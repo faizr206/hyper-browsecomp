@@ -56,6 +56,7 @@ ANTHROPIC_API_KEY=...
 GOOGLE_API_KEY=...
 XAI_API_KEY=...
 MISTRAL_API_KEY=...
+MINIMAX_API_KEY=...
 PERPLEXITY_API_KEY=...
 DEEPSEEK_API_KEY=...
 OPENROUTER_API_KEY=...
@@ -81,6 +82,10 @@ Native Inspect providers are used for `openai`, `anthropic`, `gemini`, `grok`,
 `mistral`, and `perplexity`. `gemini` is accepted in YAML and resolved to
 Inspect's `google/<model>` provider path. Other provider names, such as `qwen`,
 continue to use Inspect's OpenAI-compatible `openai-api/<provider>/<model>` path.
+
+`minimax` uses this harness's direct MiniMax adapter for `MiniMax-M3`. It supports
+MiniMax native search and direct Exa in separate resumable 423-question configs.
+See [MiniMax M3 setup and connectivity checks](docs/minimax_m3.md).
 
 Web backends:
 
@@ -238,12 +243,18 @@ Key fields:
 - `tool_profile`: `web` or `web_code`
 - `search_backend`: `internal`, `exa`, `firecrawl`, or `none`
 - `fetch_backend`: `exa`, `firecrawl`, or `none`
-- `data_path`, `sample_ids_path`, `sample_range`, `start_index`, `end_index`, `num_samples`
+- `data_path`, `sample_ids_path`, `sample_ids_file`, `sample_range`, `start_index`,
+  `end_index`, `num_samples`
 - `max_steps`
 - `inspect_max_samples_parallel`, `inspect_model_max_retries`, `inspect_attempt_timeout`
 - `inspect_retry_on_error`, `inspect_no_fail_on_error`, `inspect_continue_on_fail`,
   `inspect_ctl_server`
 - `no_sandbox`
+
+`sample_ids_path` passes the listed IDs to Inspect's `--sample-id` selector;
+blank lines and comment lines beginning with `#` are ignored. `sample_ids_file`
+filters the loaded task dataset in the file's exact order and rejects blank or
+duplicate lines. Use only one sample-selection mechanism in a config.
 
 OWL-specific fields are `owl_model_name`, `owl_api_key_env`, `owl_base_url`,
 `owl_headless`, `owl_multimodal`, `owl_browser_round_limit`,

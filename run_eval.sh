@@ -24,4 +24,4 @@ if [[ -f ".env" ]]; then
   set +a
 fi
 
-"$PYTHON_BIN" -m hyper_browsecomp.runner "$@"
+exec "$PYTHON_BIN" -m hyper_browsecomp.runner "$@"

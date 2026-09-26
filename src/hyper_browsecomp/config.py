@@ -24,6 +24,7 @@ NATIVE_PROVIDERS = {
     "google",
     "grok",
     "mistral",
+    "minimax",
     "openrouter",
     "perplexity",
 }
@@ -83,6 +84,7 @@ class RunConfig(BaseModel):
     bash_timeout: int = 120
     python_timeout: int = 120
     sample_ids_path: str | None = None
+    sample_ids_file: str | None = None
     sample_range: str | None = None
     start_index: int | None = None
     end_index: int | None = None
@@ -94,8 +96,18 @@ class RunConfig(BaseModel):
     inspect_continue_on_fail: bool = True
     inspect_no_fail_on_error: bool = True
     inspect_ctl_server: bool = True
+    auto_resume: bool = False
+    inspect_checkpoint: str | None = None
+    inspect_log_buffer: int | None = Field(default=None, ge=1)
     no_sandbox: bool = True
     log_dir: str = "logs"
+
+    @field_validator("sample_ids_file")
+    @classmethod
+    def validate_sample_ids_file(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("sample_ids_file must be a nonempty path.")
+        return value
 
     @field_validator("sample_range", mode="before")
     @classmethod
@@ -128,12 +140,23 @@ class RunConfig(BaseModel):
             self.end_index,
             self.num_samples,
         )
+        if self.sample_ids_path is not None and self.sample_ids_file is not None:
+            raise ValueError(
+                "sample_ids_path cannot be combined with sample_ids_file."
+            )
         if self.sample_ids_path is not None and any(
             value is not None for value in selection_values
         ):
             raise ValueError(
                 "sample_ids_path cannot be combined with sample_range, "
                 "start_index, end_index, or num_samples."
+            )
+        if self.sample_ids_file is not None and any(
+            value is not None for value in selection_values
+        ):
+            raise ValueError(
+                "sample_ids_file cannot be combined with sample_range, start_index, "
+                "end_index, or num_samples."
             )
         if self.sample_range is not None and any(
             value is not None for value in (self.start_index, self.end_index, self.num_samples)
