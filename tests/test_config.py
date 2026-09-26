@@ -36,6 +36,7 @@ def test_owl_config_reuses_openrouter_model_settings() -> None:
     assert config.resolved_owl_model_name() == "google/gemini-3.7-flash"
     assert config.resolved_owl_api_key_env() == "OPENROUTER_API_KEY"
     assert config.resolved_owl_base_url() == "https://openrouter.ai/api/v1"
+    assert config.owl_reasoning_effort is None
     assert config.owl_multimodal is True
     assert config.owl_browser_round_limit == 12
     assert config.owl_finalize_reserve_seconds == 120
@@ -80,6 +81,47 @@ def test_owl_configs_enable_multimodal_without_exa(config_path: str) -> None:
     assert config.search_backend == "none"
     assert config.fetch_backend == "none"
     assert config.owl_trace_dir == "logs/owl/traces"
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "owl_dev/openrouter_glm_5_3_flash.yaml",
+        "owl_full/openrouter_glm_5_3_flash.yaml",
+        "owl_full/openrouter_glm_5_3_flash_8.yaml",
+    ],
+)
+def test_glm_owl_configs_enable_multimodal_without_exa(config_path: str) -> None:
+    config = load_run_config(Path(__file__).resolve().parents[1] / "configs" / config_path)
+    assert config.harness == "owl"
+    assert config.resolved_model() == "openai-api/openrouter/z-ai/glm-5.3-flash"
+    assert config.resolved_owl_model_name() == "z-ai/glm-5.3-flash"
+    assert config.resolved_owl_api_key_env() == "OPENROUTER_API_KEY"
+    assert config.resolved_owl_base_url() == "https://openrouter.ai/api/v1"
+    assert config.owl_reasoning_effort == "low"
+    assert config.owl_multimodal is True
+    assert config.search_backend == "none"
+    assert config.fetch_backend == "none"
+    assert config.owl_max_tokens == 32768
+    assert config.owl_trace_dir == "logs/owl/traces"
+
+
+def test_glm_owl_validation_config_runs_first_eight_in_parallel() -> None:
+    config = load_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "owl_full"
+        / "openrouter_glm_5_3_flash_8.yaml"
+    )
+    assert config.sample_range == "1-8"
+    assert config.inspect_max_samples_parallel == 8
+    assert config.owl_task_timeout_seconds == 4200
+    assert config.owl_timeout_scale == 3.5
+    assert config.owl_finalize_reserve_seconds == 420
+    assert config.inspect_attempt_timeout == 4410
+    assert config.owl_max_model_calls == 300
+    assert config.owl_max_tokens == 32768
+    assert config.owl_reasoning_effort == "low"
 
 
 def test_owl_full_config_uses_pass_at_one_global_budgets() -> None:

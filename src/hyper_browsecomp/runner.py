@@ -184,6 +184,7 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
                 "owl_multimodal": str(config.owl_multimodal).lower(),
                 "owl_browser_round_limit": config.owl_browser_round_limit,
                 "owl_task_timeout_seconds": config.owl_task_timeout_seconds,
+                "owl_timeout_scale": config.owl_timeout_scale,
                 "owl_finalize_reserve_seconds": config.owl_finalize_reserve_seconds,
                 "owl_max_external_tool_calls": config.owl_max_external_tool_calls,
                 "owl_max_model_calls": config.owl_max_model_calls,
@@ -192,6 +193,8 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
                 "owl_trace_dir": config.owl_trace_dir,
             }
         )
+        if config.owl_reasoning_effort is not None:
+            task_args["owl_reasoning_effort"] = config.owl_reasoning_effort
     else:
         task_args.update(
             {

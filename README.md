@@ -23,6 +23,29 @@ uv run --project owl_runtime playwright install chromium
 Local video decoding also needs FFmpeg on `PATH`. YouTube downloads use the
 locked `yt-dlp-ejs` dependency and enable Node.js when `node` is on `PATH`.
 
+To verify the installation without making external API calls, run:
+
+```bash
+uv run pytest -q
+```
+
+The test suite covers configuration loading, dataset handling, runner command
+construction, scoring-task setup, web tools, and the isolated OWL harness.
+
+## Repository layout
+
+- `configs/`: development, full-benchmark, backend, and model configurations
+- `data/`: small smoke-test fixtures; the full encrypted dataset is loaded from
+  Hugging Face at runtime
+- `src/hyper_browsecomp/`: Inspect task, runner, scorer, and web-tool code
+- `owl_runtime/`: separately locked OWL/CAMEL worker and multimodal utilities
+- `scripts/`: result recovery and trace-report helpers
+- `slurm/`: cluster launchers and operating notes
+- `tests/`: offline unit tests
+
+Generated logs, traces, temporary files, local environments, and downloaded
+datasets are intentionally excluded from version control; see `.gitignore`.
+
 ## Environment
 
 Store API key values in `.env`:
@@ -106,6 +129,9 @@ uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash.yaml
 uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash_video.yaml
 uv run bash run_eval.sh configs/owl_dev/openrouter_gemini_flash_media.yaml
 uv run bash run_eval.sh configs/owl_full/openrouter_gemini_flash.yaml
+uv run bash run_eval.sh configs/owl_dev/openrouter_glm_5_3_flash.yaml
+uv run bash run_eval.sh configs/owl_full/openrouter_glm_5_3_flash_8.yaml
+uv run bash run_eval.sh configs/owl_full/openrouter_glm_5_3_flash.yaml
 ```
 
 The OWL smoke config uses OpenRouter's multimodal
@@ -113,6 +139,17 @@ The OWL smoke config uses OpenRouter's multimodal
 Workforce inside the Inspect evaluation shell, so the existing dataset,
 scorer, `.eval` log, redaction, and resume behavior are retained while the
 normal Inspect ReAct agent is bypassed.
+
+The equivalent GLM configs run the same OWL harness through OpenRouter with
+`z-ai/glm-5.3-flash`. Start with the dev smoke config, then the eight-sample
+validation config before launching the full dataset. GLM uses OWL's local
+download-and-frame path for YouTube because the native YouTube shortcut is
+specific to Gemini through Google AI Studio.
+
+On the MBZUAI SLURM cluster, submit the eight-problem validation with
+`sbatch slurm/owl_glm_5_3_flash_8.sbatch`. The full-run command for two
+exclusive `ws-ia` nodes with eight OWL workers each is documented in
+`slurm/README.md`.
 
 The video smoke config searches for the canonical YouTube URL for `Me at the
 zoo`, requires OWL to call `ask_question_about_video`, and asks for a visual
@@ -210,9 +247,9 @@ Key fields:
 
 OWL-specific fields are `owl_model_name`, `owl_api_key_env`, `owl_base_url`,
 `owl_headless`, `owl_multimodal`, `owl_browser_round_limit`,
-`owl_task_timeout_seconds`, `owl_finalize_reserve_seconds`,
+`owl_task_timeout_seconds`, `owl_timeout_scale`, `owl_finalize_reserve_seconds`,
 `owl_max_external_tool_calls`, `owl_max_model_calls`,
-`owl_model_max_retries`, and `owl_max_tokens`.
+`owl_model_max_retries`, `owl_max_tokens`, and `owl_reasoning_effort`.
 `owl_trace_dir` defaults to `logs/owl/traces` and stores a
 readable OWL console trajectory plus structured Workforce events for every
 sample; their paths are also recorded in the sample's `.eval` metadata. If the
@@ -226,6 +263,11 @@ allows one retry for a transient OWL model request. It sets
 `inspect_retry_on_error: 0` so an errored sample is not rerun; Inspect's
 `inspect_model_max_retries` is separate and applies to Inspect-managed calls
 such as the judge, not the OWL worker's OpenRouter calls.
+
+For lower-throughput models, `owl_timeout_scale` multiplies OWL's nested agent,
+browser, and media-tool timeouts without changing the separate task deadline.
+The GLM full configs use `3.5`, based on 140 versus 40 tokens per second, and
+scale the task deadline and finalization reserve by the same ratio.
 
 OWL traces are created as soon as each sample starts. Tail the newest `.log`
 under `logs/owl/traces/` to watch model calls, tool calls, worker responses, and
@@ -358,7 +400,9 @@ through a compatible endpoint can use the download-and-frame path without a
 Google perception model. Endpoint image support is required; text-only models
 cannot inspect media. `z-ai/glm-4.6v` through OpenRouter has been live-tested on
 the YouTube download-and-frame path. This does not imply that every GLM variant,
-provider, or video is compatible.
+provider, or video is compatible. Ready-to-run OWL configs are also supplied
+for OpenRouter's multimodal `z-ai/glm-5.3-flash`; validate the smoke run against
+the provider currently selected by OpenRouter before starting a full benchmark.
 
 `ask_question_about_pdf(pdf_path, question, pages="1")` renders up to eight
 specified 1-based pages per call and reports the total page count. It does not

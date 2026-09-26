@@ -108,6 +108,7 @@ def _model_factory(
     base_url = str(payload["base_url"])
     max_tokens = int(payload.get("max_tokens", 8192))
     max_model_calls = int(payload.get("max_model_calls", 180))
+    reasoning_effort = payload.get("reasoning_effort")
 
     stats_lock = threading.Lock()
 
@@ -136,11 +137,17 @@ def _model_factory(
 
     def create_model(role: str = "unspecified"):
         model_config = {"temperature": 0, "max_tokens": max_tokens}
+        extra_body: dict[str, Any] = {}
+        if reasoning_effort:
+            extra_body["reasoning"] = {"effort": str(reasoning_effort)}
         if role == "youtube_native":
             # Vertex does not accept YouTube URLs. Keep provider routing strict.
-            model_config["extra_body"] = {
-                "provider": {"only": ["google-ai-studio"], "allow_fallbacks": False}
+            extra_body["provider"] = {
+                "only": ["google-ai-studio"],
+                "allow_fallbacks": False,
             }
+        if extra_body:
+            model_config["extra_body"] = extra_body
         model = ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
             model_type=model_name,
@@ -274,6 +281,8 @@ def build_workforce(
     dict[str, Any],
     Path,
 ]:
+    task_timeout_seconds = float(payload.get("task_timeout_seconds", 900))
+    timeout_scale = float(payload.get("timeout_scale", 1.0))
     model_stats: dict[str, Any] = {
         "model_calls": 0,
         "model_call_attempts": 0,
@@ -287,11 +296,13 @@ def build_workforce(
         "calls": [],
         "budget_events": [],
         "termination_reason": None,
-        "task_timeout_seconds": int(payload.get("task_timeout_seconds", 900)),
+        "task_timeout_seconds": int(task_timeout_seconds),
+        "timeout_scale": timeout_scale,
         "finalize_reserve_seconds": int(payload.get("finalize_reserve_seconds", 120)),
         "max_external_tool_calls": int(payload.get("max_external_tool_calls", 50)),
         "max_model_calls": int(payload.get("max_model_calls", 180)),
         "model_max_retries": int(payload.get("model_max_retries", 1)),
+        "reasoning_effort": payload.get("reasoning_effort"),
     }
     tool_usage: dict[str, int] = defaultdict(int)
     wall_started = time.perf_counter()
@@ -315,7 +326,6 @@ def build_workforce(
 
     create_model = _model_factory(payload, model_stats, emit_progress)
     max_external_tool_calls = int(payload.get("max_external_tool_calls", 50))
-    task_timeout_seconds = float(payload.get("task_timeout_seconds", 900))
     finalize_reserve_seconds = float(payload.get("finalize_reserve_seconds", 120))
     research_deadline_seconds = max(0.0, task_timeout_seconds - finalize_reserve_seconds)
 
@@ -443,17 +453,13 @@ def build_workforce(
         # default 180-second timeout. Video download, frame extraction, and a
         # multi-round browser loop can legitimately take longer, so align the
         # toolkit wrapper with the web agent's explicit tool budget.
-        browser_toolkit.timeout = min(
-            600.0, float(payload.get("task_timeout_seconds", 900))
-        )
+        browser_toolkit.timeout = min(600.0 * timeout_scale, task_timeout_seconds)
         # BrowserToolkit constructs its two internal ChatAgents with CAMEL's
         # 180-second default. That is shorter than this tool's 600-second
         # execution budget and caused real long-page visual browsing to fail
         # even though the surrounding OWL task was healthy. Keep the nested
         # calls within the outer boundary while honoring shorter task limits.
-        browser_step_timeout = min(
-            540.0, float(payload.get("task_timeout_seconds", 900))
-        )
+        browser_step_timeout = min(540.0 * timeout_scale, task_timeout_seconds)
         browser_toolkit.web_agent.step_timeout = browser_step_timeout
         browser_toolkit.planning_agent.step_timeout = browser_step_timeout
         original_visit_page = browser_toolkit.browser.visit_page
@@ -517,8 +523,8 @@ def build_workforce(
         model=create_model("web_worker"),
         tools=web_tools,
         max_iteration=20,
-        tool_execution_timeout=600,
-        step_timeout=660,
+        tool_execution_timeout=min(600.0 * timeout_scale, task_timeout_seconds),
+        step_timeout=min(660.0 * timeout_scale, task_timeout_seconds),
     )
 
     multimodal = bool(payload.get("multimodal", True))
@@ -800,32 +806,32 @@ def build_workforce(
         model=create_model("multimodal_worker"),
         tools=multimodal_tools,
         max_iteration=12,
-        tool_execution_timeout=360,
-        step_timeout=420,
+        tool_execution_timeout=min(360.0 * timeout_scale, task_timeout_seconds),
+        step_timeout=min(420.0 * timeout_scale, task_timeout_seconds),
     )
     reasoning_agent = ChatAgent(
         REASONING_AGENT_PROMPT,
         model=create_model("reasoning_worker"),
         max_iteration=8,
-        step_timeout=660,
+        step_timeout=min(660.0 * timeout_scale, task_timeout_seconds),
     )
     task_agent = ChatAgent(
         TASK_MANAGER_PROMPT,
         model=create_model("task_manager"),
         max_iteration=8,
-        step_timeout=660,
+        step_timeout=min(660.0 * timeout_scale, task_timeout_seconds),
     )
     coordinator_agent = ChatAgent(
         COORDINATOR_PROMPT,
         model=create_model("coordinator"),
         max_iteration=12,
-        step_timeout=660,
+        step_timeout=min(660.0 * timeout_scale, task_timeout_seconds),
     )
     new_worker_agent = ChatAgent(
         "You are an auxiliary OWL reasoning worker. Use only evidence supplied in the task; you have no retrieval tools.",
         model=create_model("auxiliary_worker"),
         max_iteration=8,
-        step_timeout=660,
+        step_timeout=min(660.0 * timeout_scale, task_timeout_seconds),
     )
 
     for agent in (
@@ -847,6 +853,17 @@ def build_workforce(
         task_timeout_seconds=float(payload.get("task_timeout_seconds", 900)),
         callbacks=[workforce_logger],
     )
+    # Workforce rebuilds custom manager agents in its constructor and drops
+    # their step_timeout in the process. Restore those values on the actual
+    # agents it retained, then preserve them across any later clone() calls.
+    for workforce_agent, source_agent in (
+        (workforce.task_agent, task_agent),
+        (workforce.coordinator_agent, coordinator_agent),
+        (workforce.new_worker_agent, new_worker_agent),
+    ):
+        if workforce_agent is not None:
+            workforce_agent.step_timeout = source_agent.step_timeout
+            _preserve_clone_step_timeout(workforce_agent)
     workforce.add_single_agent_worker(
         "Searches the public web and visually browses rendered pages and screenshots.",
         worker=web_agent,
@@ -882,11 +899,13 @@ def build_workforce(
         "search_backends": ["duckduckgo", "wikipedia"],
         "exa": False,
         "browser_round_limit": int(payload.get("browser_round_limit", 12)),
-        "task_timeout_seconds": int(payload.get("task_timeout_seconds", 900)),
+        "task_timeout_seconds": int(task_timeout_seconds),
+        "timeout_scale": timeout_scale,
         "finalize_reserve_seconds": int(payload.get("finalize_reserve_seconds", 120)),
         "max_external_tool_calls": int(payload.get("max_external_tool_calls", 50)),
         "max_model_calls": int(payload.get("max_model_calls", 180)),
         "model_max_retries": int(payload.get("model_max_retries", 1)),
+        "reasoning_effort": payload.get("reasoning_effort"),
     }
     return (
         workforce,
@@ -926,6 +945,7 @@ def _statistics(
         "by_role": by_role,
         "limits": {
             "task_timeout_seconds": model_stats.get("task_timeout_seconds"),
+            "timeout_scale": model_stats.get("timeout_scale"),
             "finalize_reserve_seconds": model_stats.get("finalize_reserve_seconds"),
             "max_external_tool_calls": model_stats.get("max_external_tool_calls"),
             "max_model_calls": model_stats.get("max_model_calls"),

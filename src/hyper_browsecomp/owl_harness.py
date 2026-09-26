@@ -235,11 +235,13 @@ async def run_owl_harness(
     multimodal: bool,
     browser_round_limit: int,
     task_timeout_seconds: int,
+    timeout_scale: float = 1.0,
     finalize_reserve_seconds: int = 120,
     max_external_tool_calls: int = 50,
     max_model_calls: int = 180,
     model_max_retries: int = 1,
     max_tokens: int = 8192,
+    reasoning_effort: str | None = None,
     image_urls: list[str] | None = None,
     sample_id: str = "unknown",
     trace_dir: str | Path = "logs/owl/traces",
@@ -258,11 +260,13 @@ async def run_owl_harness(
         "multimodal": multimodal,
         "browser_round_limit": browser_round_limit,
         "task_timeout_seconds": task_timeout_seconds,
+        "timeout_scale": timeout_scale,
         "finalize_reserve_seconds": finalize_reserve_seconds,
         "max_external_tool_calls": max_external_tool_calls,
         "max_model_calls": max_model_calls,
         "model_max_retries": model_max_retries,
         "max_tokens": max_tokens,
+        "reasoning_effort": reasoning_effort,
     }
 
     trace_files = _new_trace_files(trace_dir, sample_id, model_name)

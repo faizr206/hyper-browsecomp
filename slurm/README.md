@@ -6,8 +6,8 @@ independent shards of at most 25 samples. Up to two shards run at a time
 (`--array=0-16%2`), and each shard uses two sample workers. Therefore, at most
 four OWL agents share the cluster's public IP at any time.
 
-The checked-in launcher is pinned to `ws-l4-013`. Remove or override the
-`--nodelist` directive when running on another SLURM installation.
+The checked-in launcher lets SLURM select compute nodes. Use `--nodelist` at
+submission time only when a particular node is required.
 
 With the default 40-minute OWL timeout, 41-minute Inspect attempt timeout, and
 250-model-call limit, a 25-sample shard has 13 worker waves. Its timeout-based
@@ -49,6 +49,13 @@ Submit from the repository checkout:
 ```bash
 sbatch slurm/owl_retained_array.sbatch
 squeue -u "$USER"
+```
+
+For the GLM 5.3 Flash validation, submit the dedicated job. It runs dataset
+problems 1–8 together as eight concurrent OWL workers on one `ws-ia` node:
+
+```bash
+sbatch slurm/owl_glm_5_3_flash_8.sbatch
 ```
 
 SLURM executes a spooled copy of the batch script, so the launcher uses
@@ -98,6 +105,22 @@ The base config and timeouts can be overridden at submission:
 sbatch --export=ALL,OWL_TASK_TIMEOUT_SECONDS=1200,INSPECT_ATTEMPT_TIMEOUT=1260 \
   slurm/owl_retained_array.sbatch
 ```
+
+For GLM 5.3 Flash, run two exclusive one-node allocations with eight OWL
+samples on each node (16 concurrent samples total):
+
+```bash
+sbatch --partition=ws-ia --array=0-16%2 --nodes=1 --exclusive \
+  --nodelist=ws-l4-013,ws-l5-011 \
+  --cpus-per-task=16 --mem=64G \
+  --export=ALL,BASE_CONFIG=configs/owl_full/openrouter_glm_5_3_flash.yaml,PARALLEL_SAMPLES=8 \
+  slurm/owl_retained_array.sbatch
+```
+
+The `%2` array throttle limits the run to two active allocations. Combined
+with `--exclusive`, the two active shards occupy `ws-l4-013` and `ws-l5-011`,
+one per node, with eight OWL workers on each. Both nodes currently expose 48
+CPUs and 230 GB RAM; the job requests 16 CPUs and 64 GB per allocation.
 
 The model-call guard can also be overridden:
 

@@ -1,0 +1,32 @@
+model: openai-api/openrouter/z-ai/glm-5.3-flash
+model_api_key_env: OPENROUTER_API_KEY
+model_base_url: https://openrouter.ai/api/v1
+
+harness: owl
+data_path: afaji/HyperBrowseComp
+sample_range: "1-8"
+search_backend: none
+fetch_backend: none
+owl_browser_round_limit: 12
+owl_headless: true
+owl_multimodal: true
+owl_task_timeout_seconds: 4200
+owl_timeout_scale: 3.5
+owl_finalize_reserve_seconds: 420
+owl_max_external_tool_calls: 50
+owl_max_model_calls: 300
+owl_model_max_retries: 1
+owl_max_tokens: 32768
+owl_reasoning_effort: low
+owl_trace_dir: logs/owl/traces
+
+# Run all eight validation problems concurrently before scaling to SLURM.
+inspect_max_samples_parallel: 8
+inspect_model_max_retries: 1
+inspect_attempt_timeout: 4410
+inspect_retry_on_error: 0
+inspect_no_fail_on_error: true
+inspect_continue_on_fail: true
+inspect_ctl_server: false
+no_sandbox: true
+log_dir: logs/owl

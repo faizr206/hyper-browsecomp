@@ -11,6 +11,7 @@ SearchBackend = Literal["internal", "exa", "firecrawl", "none"]
 FetchBackend = Literal["exa", "firecrawl", "none"]
 ToolProfile = Literal["web", "web_code"]
 Harness = Literal["react", "owl"]
+ReasoningEffort = Literal["max", "xhigh", "high", "medium", "low", "minimal", "none"]
 
 
 NATIVE_PROVIDER_ALIASES: dict[str, str] = {
@@ -71,11 +72,13 @@ class RunConfig(BaseModel):
     owl_multimodal: bool = True
     owl_browser_round_limit: int = Field(default=12, ge=1)
     owl_task_timeout_seconds: int = 900
+    owl_timeout_scale: float = Field(default=1.0, ge=1.0)
     owl_finalize_reserve_seconds: int = Field(default=120, ge=0)
     owl_max_external_tool_calls: int = Field(default=50, ge=1)
     owl_max_model_calls: int = Field(default=180, ge=1)
     owl_model_max_retries: int = Field(default=1, ge=0)
     owl_max_tokens: int = 8192
+    owl_reasoning_effort: ReasoningEffort | None = None
     owl_trace_dir: str = "logs/owl/traces"
     bash_timeout: int = 120
     python_timeout: int = 120

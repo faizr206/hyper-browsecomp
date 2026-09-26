@@ -166,6 +166,7 @@ def test_build_inspect_command_selects_isolated_multimodal_owl_harness() -> None
         harness="owl",
         search_backend="none",
         fetch_backend="none",
+        owl_reasoning_effort="low",
     )
     command = build_inspect_command(config)
     assert "harness=owl" in command
@@ -176,10 +177,12 @@ def test_build_inspect_command_selects_isolated_multimodal_owl_harness() -> None
     assert "owl_multimodal=true" in command
     assert "owl_browser_round_limit=12" in command
     assert "owl_task_timeout_seconds=900" in command
+    assert "owl_timeout_scale=1.0" in command
     assert "owl_finalize_reserve_seconds=120" in command
     assert "owl_max_external_tool_calls=50" in command
     assert "owl_max_model_calls=180" in command
     assert "owl_model_max_retries=1" in command
+    assert "owl_reasoning_effort=low" in command
     assert "owl_trace_dir=logs/owl/traces" in command
     assert "max_steps=12" not in command
     assert not any(arg.startswith("search_backend=") for arg in command)
