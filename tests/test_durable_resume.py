@@ -144,7 +144,10 @@ raise SystemExit(run_durable(RunConfig(model="mockllm/model", auto_resume=True, 
     with (tmp_path / "first-output.txt").open("w") as output:
         process = subprocess.Popen(command, env=env, stdout=output, stderr=output, start_new_session=True)
         try:
-            deadline = time.monotonic() + 25
+            # Importing Inspect and initializing its checkpoint runtime can be
+            # slow on a cold machine. Keep this comfortably below the fixture's
+            # intentional 120-second hang while avoiding startup-only flakes.
+            deadline = time.monotonic() + 60
             while not (tmp_path / "running-q2").exists():
                 assert process.poll() is None, (tmp_path / "first-output.txt").read_text()
                 assert time.monotonic() < deadline, (tmp_path / "first-output.txt").read_text()
@@ -156,7 +159,7 @@ raise SystemExit(run_durable(RunConfig(model="mockllm/model", auto_resume=True, 
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
     (tmp_path / "continue").touch()
-    resumed = subprocess.run(command, env=env, text=True, capture_output=True, timeout=30)
+    resumed = subprocess.run(command, env=env, text=True, capture_output=True, timeout=60)
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     calls = (tmp_path / "calls.txt").read_text().splitlines()
     if checkpoint:
@@ -172,7 +175,7 @@ raise SystemExit(run_durable(RunConfig(model="mockllm/model", auto_resume=True, 
     assert {sample.id for sample in samples} == {"q1", "q2"}
     assert all(sample.error is None and sample.scores for sample in samples)
     assert len(list((tmp_path / "dump").rglob("*.eval"))) >= 2
-    again = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+    again = subprocess.run(command, env=env, text=True, capture_output=True, timeout=30)
     assert again.returncode == 0, again.stdout + again.stderr
     assert "Already complete: 2/2" in again.stdout
     assert (tmp_path / "calls.txt").read_text().splitlines() == calls

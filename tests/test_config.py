@@ -30,6 +30,132 @@ def test_config_resolves_openrouter_as_native_provider() -> None:
     assert config.resolved_model() == "openrouter/anthropic/claude-fable-5.1"
 
 
+def test_owl_config_reuses_openrouter_model_settings() -> None:
+    config = RunConfig(
+        provider="openrouter",
+        model_name="google/gemini-3.7-flash",
+        model_api_key_env="OPENROUTER_API_KEY",
+        model_base_url="https://openrouter.ai/api/v1",
+        harness="owl",
+    )
+    assert config.resolved_owl_model_name() == "google/gemini-3.7-flash"
+    assert config.resolved_owl_api_key_env() == "OPENROUTER_API_KEY"
+    assert config.resolved_owl_base_url() == "https://openrouter.ai/api/v1"
+    assert config.owl_reasoning_effort is None
+    assert config.owl_multimodal is True
+    assert config.owl_browser_round_limit == 12
+    assert config.owl_finalize_reserve_seconds == 120
+    assert config.owl_max_external_tool_calls == 50
+    assert config.owl_max_model_calls == 180
+    assert config.owl_model_max_retries == 1
+
+
+def test_owl_config_requires_base_url() -> None:
+    with pytest.raises(ValueError, match="harness=owl requires"):
+        RunConfig(provider="openrouter", model_name="google/gemini-3.7-flash", harness="owl")
+
+
+def test_owl_finalize_reserve_must_fit_inside_task_timeout() -> None:
+    with pytest.raises(ValueError, match="finalize_reserve_seconds"):
+        RunConfig(
+            provider="openrouter",
+            model_name="google/gemini-3.7-flash",
+            model_base_url="https://openrouter.ai/api/v1",
+            harness="owl",
+            owl_task_timeout_seconds=120,
+            owl_finalize_reserve_seconds=120,
+        )
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "owl_dev/openrouter_gemini_flash.yaml",
+        "owl_dev/openrouter_gemini_flash_video.yaml",
+        "owl_dev/openrouter_gemini_flash_bilibili.yaml",
+        "owl_dev/openrouter_gemini_flash_media.yaml",
+        "owl_full/openrouter_gemini_flash.yaml",
+        "owl_full/openrouter_gemini_flash_5.yaml",
+    ],
+)
+def test_owl_configs_enable_multimodal_without_exa(config_path: str) -> None:
+    config = load_run_config(Path(__file__).resolve().parents[1] / "configs" / config_path)
+    assert config.harness == "owl"
+    assert config.resolved_owl_model_name() == "google/gemini-3.7-flash"
+    assert config.owl_multimodal is True
+    assert config.search_backend == "none"
+    assert config.fetch_backend == "none"
+    assert config.owl_trace_dir == "logs/owl/traces"
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "owl_dev/openrouter_glm_5_3_flash.yaml",
+        "owl_full/openrouter_glm_5_3_flash.yaml",
+        "owl_full/openrouter_glm_5_3_flash_8.yaml",
+    ],
+)
+def test_glm_owl_configs_enable_multimodal_without_exa(config_path: str) -> None:
+    config = load_run_config(Path(__file__).resolve().parents[1] / "configs" / config_path)
+    assert config.harness == "owl"
+    assert config.resolved_model() == "openai-api/openrouter/z-ai/glm-5.3-flash"
+    assert config.resolved_owl_model_name() == "z-ai/glm-5.3-flash"
+    assert config.resolved_owl_api_key_env() == "OPENROUTER_API_KEY"
+    assert config.resolved_owl_base_url() == "https://openrouter.ai/api/v1"
+    assert config.owl_reasoning_effort == "low"
+    assert config.owl_multimodal is True
+    assert config.search_backend == "none"
+    assert config.fetch_backend == "none"
+    assert config.owl_max_tokens == 32768
+    assert config.owl_trace_dir == "logs/owl/traces"
+
+
+def test_glm_owl_validation_config_runs_first_eight_in_parallel() -> None:
+    config = load_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "owl_full"
+        / "openrouter_glm_5_3_flash_8.yaml"
+    )
+    assert config.sample_range == "1-8"
+    assert config.inspect_max_samples_parallel == 8
+    assert config.owl_task_timeout_seconds == 4200
+    assert config.owl_timeout_scale == 3.5
+    assert config.owl_finalize_reserve_seconds == 420
+    assert config.inspect_attempt_timeout == 4410
+    assert config.owl_max_model_calls == 300
+    assert config.owl_max_tokens == 32768
+    assert config.owl_reasoning_effort == "low"
+
+
+def test_owl_full_config_uses_pass_at_one_global_budgets() -> None:
+    config = load_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "owl_full"
+        / "openrouter_gemini_flash_5.yaml"
+    )
+    assert config.owl_browser_round_limit == 12
+    assert config.owl_task_timeout_seconds == 1200
+    assert config.owl_finalize_reserve_seconds == 120
+    assert config.owl_max_external_tool_calls == 50
+    assert config.owl_max_model_calls == 180
+    assert config.owl_model_max_retries == 1
+    assert config.inspect_max_samples_parallel == 2
+    assert config.inspect_retry_on_error == 0
+
+
+def test_owl_full_config_runs_four_samples_in_parallel() -> None:
+    config = load_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "owl_full"
+        / "openrouter_gemini_flash.yaml"
+    )
+    assert config.inspect_max_samples_parallel == 4
+
+
 def test_config_allows_prequalified_model() -> None:
     config = RunConfig(model="openai-api/openrouter/qwen/qwen3-32b")
     assert config.resolved_model() == "openai-api/openrouter/qwen/qwen3-32b"
@@ -47,6 +173,25 @@ def test_sample_range_rejects_mixed_slice_options() -> None:
             model_name="deepseek-chat",
             sample_range="1-2",
             start_index=0,
+        )
+
+
+def test_sample_ids_path_rejects_other_selection_options() -> None:
+    with pytest.raises(ValueError, match="sample_ids_path cannot be combined"):
+        RunConfig(
+            provider="deepseek",
+            model_name="deepseek-chat",
+            sample_ids_path="retained.txt",
+            sample_range="1-2",
+        )
+
+
+def test_sample_id_files_are_mutually_exclusive() -> None:
+    with pytest.raises(ValueError, match="sample_ids_path cannot be combined"):
+        RunConfig(
+            model="mockllm/model",
+            sample_ids_path="retained.txt",
+            sample_ids_file="configs/retained_ids.txt",
         )
 
 

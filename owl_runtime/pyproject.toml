@@ -1,0 +1,20 @@
+[project]
+name = "hyper-browsecomp-owl-runtime"
+version = "0.1.0"
+description = "Isolated OWL/CAMEL runtime for hyper-browsecomp."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "camel-ai[owl]==0.2.84",
+    # CAMEL imports FastMCP from the 1.x public location; MCP 2.x removed it.
+    "mcp>=1.3,<2",
+    "python-dotenv>=1.0",
+    # Keep YouTube extraction current and include yt-dlp's EJS support.
+    "yt-dlp[default]==2026.8.19",
+    # Declare explicitly: the CAMEL version override can drop yt-dlp extras.
+    "yt-dlp-ejs==0.8.0",
+    "pypdfium2>=4.30,<5",
+]
+
+[tool.uv]
+package = false
+override-dependencies = ["yt-dlp==2026.8.19"]

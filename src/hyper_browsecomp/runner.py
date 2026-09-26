@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,8 +19,8 @@ from hyper_browsecomp.dataset import (
     confidential_log_replacements,
     load_browsecomp_dataset,
     select_samples_by_ids,
+    slice_dataset,
 )
-from hyper_browsecomp.task import slice_dataset
 from hyper_browsecomp.utils import sanitize_filename
 
 
@@ -75,6 +76,32 @@ def _main_provider(config: RunConfig) -> str | None:
 
 def _scorer_provider(config: RunConfig) -> str | None:
     return config.scorer_provider or _model_provider_from_string(config.scorer_model)
+
+
+def configured_sample_ids(config: RunConfig) -> list[str] | None:
+    if config.sample_ids_path is None:
+        return None
+    path = Path(config.sample_ids_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    if not path.is_file():
+        raise ValueError(f"sample_ids_path does not exist: {path}")
+
+    sample_ids = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not sample_ids:
+        raise ValueError(f"sample_ids_path contains no sample IDs: {path}")
+    duplicates = sorted(
+        sample_id for sample_id, count in Counter(sample_ids).items() if count > 1
+    )
+    if duplicates:
+        raise ValueError(
+            f"sample_ids_path contains duplicate IDs: {', '.join(duplicates)}"
+        )
+    return sample_ids
 
 
 def prepare_env(config: RunConfig) -> dict[str, str]:
@@ -136,26 +163,60 @@ def build_inspect_command(config: RunConfig, *, sample_ids: list[str] | None = N
         command.append("--no-fail-on-error")
     if config.inspect_continue_on_fail:
         command.append("--continue-on-fail")
-    if sample_ids:
-        if any("," in sample_id for sample_id in sample_ids):
+    if not config.inspect_ctl_server:
+        command.extend(["--ctl-server", "false"])
+    effective_sample_ids = (
+        sample_ids if sample_ids is not None else configured_sample_ids(config)
+    )
+    if effective_sample_ids:
+        if any("," in sample_id for sample_id in effective_sample_ids):
             raise ValueError("sample IDs cannot contain commas when passed to inspect --sample-id.")
-        command.extend(["--sample-id", ",".join(sample_ids)])
+        command.extend(["--sample-id", ",".join(effective_sample_ids)])
 
-    task_args = {
+    task_args: dict[str, object] = {
         "data_path": config.data_path,
-        "tool_profile": config.tool_profile,
-        "search_backend": config.search_backend,
-        "fetch_backend": config.fetch_backend,
-        "model_provider": config.provider or _model_provider_from_string(config.model),
-        "search_max_results": config.search_max_results,
-        "search_timeout_seconds": config.search_timeout_seconds,
-        "fetch_timeout_seconds": config.fetch_timeout_seconds,
-        "fetch_max_chars": config.fetch_max_chars,
-        "max_steps": config.max_steps,
-        "bash_timeout": config.bash_timeout,
-        "python_timeout": config.python_timeout,
+        "harness": config.harness,
         "no_sandbox": str(config.no_sandbox).lower(),
     }
+
+    if config.harness == "owl":
+        task_args.update(
+            {
+                "owl_model_name": config.resolved_owl_model_name(),
+                "owl_api_key_env": config.resolved_owl_api_key_env(),
+                "owl_base_url": config.resolved_owl_base_url(),
+                "owl_headless": str(config.owl_headless).lower(),
+                "owl_multimodal": str(config.owl_multimodal).lower(),
+                "owl_browser_round_limit": config.owl_browser_round_limit,
+                "owl_task_timeout_seconds": config.owl_task_timeout_seconds,
+                "owl_timeout_scale": config.owl_timeout_scale,
+                "owl_finalize_reserve_seconds": config.owl_finalize_reserve_seconds,
+                "owl_max_external_tool_calls": config.owl_max_external_tool_calls,
+                "owl_max_model_calls": config.owl_max_model_calls,
+                "owl_model_max_retries": config.owl_model_max_retries,
+                "owl_max_tokens": config.owl_max_tokens,
+                "owl_trace_dir": config.owl_trace_dir,
+            }
+        )
+        if config.owl_reasoning_effort is not None:
+            task_args["owl_reasoning_effort"] = config.owl_reasoning_effort
+    else:
+        task_args.update(
+            {
+                "tool_profile": config.tool_profile,
+                "search_backend": config.search_backend,
+                "fetch_backend": config.fetch_backend,
+                "model_provider": config.provider
+                or _model_provider_from_string(config.model),
+                "search_max_results": config.search_max_results,
+                "search_timeout_seconds": config.search_timeout_seconds,
+                "fetch_timeout_seconds": config.fetch_timeout_seconds,
+                "fetch_max_chars": config.fetch_max_chars,
+                "bash_timeout": config.bash_timeout,
+                "python_timeout": config.python_timeout,
+                "max_steps": config.max_steps,
+            }
+        )
 
     if config.sample_ids_file is not None:
         task_args["sample_ids_file"] = config.sample_ids_file
@@ -180,6 +241,53 @@ def _collect_eval_logs(log_dir: Path) -> set[Path]:
     if not log_dir.exists():
         return set()
     return {path.resolve() for path in log_dir.rglob("*.eval")}
+
+
+def _owl_trace_directory(config: RunConfig) -> Path:
+    directory = Path(config.owl_trace_dir)
+    if not directory.is_absolute():
+        directory = PROJECT_ROOT / directory
+    return directory.resolve()
+
+
+def _collect_owl_traces(config: RunConfig) -> set[Path]:
+    if config.harness != "owl":
+        return set()
+    directory = _owl_trace_directory(config)
+    if not directory.exists():
+        return set()
+    return {path.resolve() for path in directory.glob("*.json")}
+
+
+def finalize_unfinished_owl_traces(config: RunConfig, *, before: set[Path]) -> list[Path]:
+    """Mark sidecars left running when Inspect ends before solver cleanup."""
+    finalized: list[Path] = []
+    for path in sorted(_collect_owl_traces(config) - before):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("status") != "running":
+            continue
+        payload.update(
+            {
+                "status": "error",
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "termination_reason": "evaluation_process_ended",
+                "error": (
+                    "Inspect ended before the OWL solver could finalize this trace; "
+                    "see the console log for the retained live trajectory."
+                ),
+                "statistics": payload.get("statistics") or {},
+                "tool_usage": payload.get("tool_usage") or {},
+                "model_calls": payload.get("model_calls") or [],
+                "media_events": payload.get("media_events") or [],
+                "workforce_events": payload.get("workforce_events") or [],
+            }
+        )
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        finalized.append(path)
+    return finalized
 
 
 def _format_timestamp(created: str | None, fallback: datetime) -> str:
@@ -332,6 +440,22 @@ def _config_for_log_selection(config: RunConfig, log_path: str | Path) -> RunCon
 
 
 def selected_sample_ids(config: RunConfig) -> list[str]:
+    requested_ids = configured_sample_ids(config)
+    if requested_ids is not None:
+        samples = load_browsecomp_dataset(config.data_path)
+        available_ids = {
+            str(sample_id)
+            for sample in samples
+            if (sample_id := getattr(sample, "id", None)) is not None
+        }
+        missing = [sample_id for sample_id in requested_ids if sample_id not in available_ids]
+        if missing:
+            raise ValueError(
+                "sample_ids_path contains IDs absent from the dataset: "
+                + ", ".join(missing)
+            )
+        return requested_ids
+
     samples = slice_dataset(
         select_samples_by_ids(load_browsecomp_dataset(config.data_path), config.sample_ids_file),
         sample_range=config.sample_range,
@@ -384,9 +508,14 @@ def run_with_config(config: RunConfig) -> int:
     env = prepare_env(config)
     log_dir = Path(env["INSPECT_LOG_DIR"])
     before = _collect_eval_logs(log_dir)
+    owl_traces_before = _collect_owl_traces(config)
     command = build_inspect_command(config)
     started_at = datetime.now(timezone.utc)
-    result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
+    try:
+        result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
+    finally:
+        for trace in finalize_unfinished_owl_traces(config, before=owl_traces_before):
+            print(f"finalized unfinished OWL trace: {trace}")
     renamed = rename_new_eval_log(config, before=before, started_at=started_at)
     if renamed is not None:
         if sanitize_eval_log(config, renamed):
@@ -408,10 +537,17 @@ def resume_with_config(config: RunConfig, log_path: str | Path) -> int:
     env = prepare_env(resume_config)
     log_dir = Path(env["INSPECT_LOG_DIR"])
     before = _collect_eval_logs(log_dir)
+    owl_traces_before = _collect_owl_traces(resume_config)
     command = build_inspect_command(resume_config, sample_ids=retry_ids)
     print(f"resuming {len(retry_ids)} unfinished sample(s): {', '.join(retry_ids)}")
     started_at = datetime.now(timezone.utc)
-    result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
+    try:
+        result = subprocess.run(command, cwd=PROJECT_ROOT, env=env)
+    finally:
+        for trace in finalize_unfinished_owl_traces(
+            resume_config, before=owl_traces_before
+        ):
+            print(f"finalized unfinished OWL trace: {trace}")
     renamed = rename_new_eval_log(resume_config, before=before, started_at=started_at)
     if renamed is not None:
         if sanitize_eval_log(resume_config, renamed):

@@ -1,13 +1,19 @@
+# OS and editor metadata
+.DS_Store
+
 # Python-generated files
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
 
 # Virtual environments
-.venv
+.venv/
 
 # Local runtime state
 .env
@@ -15,9 +21,14 @@ wheels/
 !.env.example
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 logs/
 data/*
 !data/dev.jsonl
+!data/owl_multimodal_smoke.jsonl
+!data/owl_video_smoke.jsonl
+!data/owl_bilibili_smoke.jsonl
+!data/owl_media_smoke.jsonl
 .inspect_home/
 
 tmp/
