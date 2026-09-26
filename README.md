@@ -1,12 +1,40 @@
 # HyperBrowseComp evaluation harness
 
-`hyper-browsecomp` is an [Inspect AI](https://inspect.aisi.org.uk/) harness for
-BrowseComp-style web research evaluations. It supports local JSONL fixtures and
-the encrypted `afaji/HyperBrowseComp` Hugging Face dataset, with two execution
-paths:
+This repository contains the evaluation implementation for the HyperBrowseComp
+benchmark. It provides the agent harnesses, model and retrieval configurations,
+scoring pipeline, resumable execution, and trace tooling used to evaluate
+models under a common protocol.
+
+## About HyperBrowseComp
+
+HyperBrowseComp is a multilingual and multimodal browsing benchmark comprising
+423 manually authored and human-validated questions across 13 languages. The
+questions were written by native or highly proficient speakers and designed to
+be extremely challenging.
+
+Each question targets a concise, publicly verifiable answer whose discovery
+requires locating obscure evidence, following multi-step clue chains, or
+inspecting heterogeneous sources such as videos, scanned documents, images, and
+maps. Easier questions are filtered out by evaluating them with models without
+internet access, reducing the likelihood that they can be answered from
+parametric knowledge alone.
+
+The benchmark evaluates models using provider-native search and a shared
+external-retrieval harness under a common agent protocol. A complementary human
+evaluation on a sample of the questions contextualizes model performance and
+effort. Overall, HyperBrowseComp tests persistent information seeking across
+languages and evidence modalities, with difficulty arising from discovering
+and connecting evidence on the open web.
+
+## Evaluation implementation
+
+The harness is built on [Inspect AI](https://inspect.aisi.org.uk/), loads local
+JSONL fixtures or the encrypted `afaji/HyperBrowseComp` Hugging Face dataset,
+and supports two execution paths:
 
 - Inspect ReAct agents using configurable search and fetch backends
-- an isolated OWL/CAMEL Workforce with browser and multimodal tools
+- a custom CAMEL Workforce-based OWL-style agent with browser and multimodal
+  tools
 
 Both paths use the same dataset loader, BrowseComp-style judge, resumable runs,
 and `.eval` output format.
