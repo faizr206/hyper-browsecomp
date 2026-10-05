@@ -5,8 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hyper-browsecomp"
 version = "0.1.0"
-description = "Web-only Inspect harness for BrowseComp-style evaluation."
+description = "Evaluation harness for the HyperBrowseComp benchmark."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.115.0,<1",
@@ -24,6 +25,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+
+[project.scripts]
+hyper-browsecomp = "hyper_browsecomp.runner:main"
+
+[project.urls]
+Repository = "https://github.com/faizr206/hyper-browsecomp"
+Issues = "https://github.com/faizr206/hyper-browsecomp/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -281,7 +281,7 @@ def test_finalize_unfinished_owl_traces_marks_new_running_sidecars(
 def test_main_without_config_returns_usage_error(capsys) -> None:
     assert main([]) == 2
     captured = capsys.readouterr()
-    assert "usage: python -m hyper_browsecomp.runner CONFIG.yaml" in captured.err
+    assert "usage: hyper-browsecomp CONFIG.yaml" in captured.err
 
 
 def test_runner_module_invokes_inspect(tmp_path: Path) -> None:

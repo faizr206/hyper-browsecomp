@@ -20,7 +20,7 @@ owl_max_tokens: 32768
 owl_reasoning_effort: low
 owl_trace_dir: logs/owl/traces
 
-# Run all eight validation problems concurrently before scaling to SLURM.
+# Run all eight validation problems concurrently before scaling further.
 inspect_max_samples_parallel: 8
 inspect_model_max_retries: 1
 inspect_attempt_timeout: 4410

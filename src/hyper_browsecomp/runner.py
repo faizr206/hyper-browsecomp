@@ -568,8 +568,8 @@ def main(argv: list[str] | None = None) -> int:
         return resume_with_config(config, args[2])
 
     print(
-        "usage: python -m hyper_browsecomp.runner CONFIG.yaml\n"
-        "       python -m hyper_browsecomp.runner resume CONFIG.yaml LOG.eval",
+        "usage: hyper-browsecomp CONFIG.yaml\n"
+        "       hyper-browsecomp resume CONFIG.yaml LOG.eval",
         file=sys.stderr,
     )
     return 2
